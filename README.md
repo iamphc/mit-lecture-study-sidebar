@@ -5,10 +5,10 @@ Chrome extension for studying MIT OpenCourseWare videos on YouTube. It automatic
 ## Core capabilities
 
 - Generates a structured lecture outline
-- Separately analyzes visible lecture frames such as PPT slides, diagrams, equations, and board writing
+- Separately analyzes visible PPT/board frames from locally extracted text
 - Works in a right-side overlay that remains visible even when the video enters fullscreen
 - Uses DeepSeek for outline generation
-- Uses local Ollama for visual frame analysis by default
+- Uses a three-step PPT pipeline: local keyframe selection, local OCR extraction, then DeepSeek text-only analysis
 - Exports the generated outline as Markdown or copies it to clipboard
 - Saves per-video study results locally and shows recent lecture history
 - Splits long lecture content into multiple DeepSeek requests, progressively renders completed chunks, and locally deduplicates the final outline
@@ -76,31 +76,24 @@ Default values:
 
 If your DeepSeek account uses a different compatible endpoint or model name, change it in settings.
 
-## Local Ollama visual setup
+## Local visual model
 
-Visual frame analysis is local by default. Install Ollama and pull the default vision model:
+PPT frame processing runs in three stages:
 
-```bash
-brew install ollama
-ollama pull qwen2.5vl:3b
-ollama serve
-```
+1. The browser locally filters video frames to find likely PPT/key teaching frames.
+2. The browser locally extracts raw OCR text from those frames without interpretation.
+3. DeepSeek receives only the extracted text and nearby transcript context to produce Chinese analysis.
 
-Default values:
-
-- Ollama URL: `http://127.0.0.1:11434`
-- Vision model: `qwen2.5vl:3b`
-
-Use the settings page button `测试本地视觉模型` to check whether Ollama is running and the model is installed.
+Users do not need to install a local service or download a model manually. The extension bundles the Transformers.js runtime and downloads the default browser OCR model automatically on first use. Model files are cached by Chrome after the first download. Sampled images are not sent to DeepSeek or Hugging Face.
 
 ## Usage flow
 
 1. Open a YouTube MIT lecture.
-2. The sidebar automatically generates a Chinese outline.
-3. Keep watching the lecture. The `画面` tab progressively collects separate PPT/board visual analysis when useful frames appear.
-4. Use `Jump` to go back to the relevant video timestamp.
-5. Use `Export MD` or `Copy` after generation.
-6. Reopen the same lecture later and restore from local cache, or open it from the library tab.
+2. Open the extension options page, fill the DeepSeek API Key, and click `选择目录` under `本地保存目录`.
+3. If `自动分析课程视频` is enabled, the sidebar automatically generates a Chinese outline. If it is disabled, click `生成大纲` when you want to analyze the current video.
+4. Keep watching the lecture. The `画面` tab progressively collects separate PPT analysis when useful frames appear.
+5. Use `Jump` to go back to the relevant video timestamp.
+6. Reopen the same lecture later and restore from local cache, or use the local files in the selected save directory.
 
 ## Packaging
 
@@ -128,7 +121,17 @@ This creates:
 
 ## Local data
 
-Generated lecture CSV files and per-user study data are local-only. The default CSV path is under `data/lecture_csv/`, and the entire `data/` directory is ignored by git so personal learning records are not uploaded to GitHub.
+Per-user study data is local-only. Chrome extension storage is used as a fast UI cache, and the selected local save directory is the durable data store.
+
+The options page has one formal `本地保存目录` selector. Click `选择目录` and approve write access in the system Finder/File Explorer dialog. After a lecture outline is generated, the extension writes:
+
+- `lecture_library.csv` in the selected root directory, upserted by `video_id`
+- `lectures/<video_id>/lecture.json`
+- `lectures/<video_id>/study_pack.md`
+
+The saved record includes the video URL, video title, published/upload date when available, watched time, full transcript, generated outline, PPT visual analysis, tags/metadata fields, and Markdown. No `npm run csv-server` process is required for normal use.
+
+`npm run csv-server` remains only as a legacy development helper for older CSV/debug flows. It is not part of the normal extension workflow.
 
 ## Local smoke harness
 
@@ -149,10 +152,10 @@ For the final real-environment acceptance pass, follow:
 ## Product behavior
 
 - DeepSeek is used for transcript outline generation
-- Local Ollama is used for PPT, board, equation, and diagram frame analysis
+- PPT processing is split into local keyframe selection, local OCR extraction, and DeepSeek text-only analysis
 - Saved lecture results are cached per YouTube video ID
 - Long lecture content is chunked before DeepSeek analysis; completed chunks appear progressively in the sidebar
-- PPT, board, equation, and diagram frame analysis is stored separately from transcript-based outline content
+- PPT analysis is stored separately from transcript-based outline content, including the raw OCR text for later search
 - Final outlines are locally merged, deduplicated, and sorted by timestamp
 - Malformed model JSON is retried through a repair prompt; if one chunk still cannot be repaired, that chunk is skipped instead of failing the whole lecture
 - Settings changes propagate to the sidebar without manually editing code
@@ -167,7 +170,7 @@ For the final real-environment acceptance pass, follow:
 - Content extraction can still break if YouTube changes page metadata structure
 - The current export is Markdown only
 - Transcript outline generation needs a DeepSeek-compatible text model
-- Visual frame analysis needs local Ollama running with a vision-capable model such as `qwen2.5vl:3b`
+- Visual frame analysis needs network access on first use to download the browser model files, then reuses the browser cache
 
 ## Release checklist
 

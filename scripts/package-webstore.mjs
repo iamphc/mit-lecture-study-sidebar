@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,11 +10,13 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const packageDir = path.join(distDir, "webstore", "mit-lecture-study-sidebar");
-const zipPath = path.join(distDir, "mit-lecture-study-sidebar-v0.1.0.zip");
 
 await ensureExists(path.join(rootDir, "manifest.json"));
 await ensureExists(path.join(rootDir, "src"));
 await ensureExists(path.join(rootDir, "assets", "icons", "icon-128.png"));
+
+const manifest = JSON.parse(await readFile(path.join(rootDir, "manifest.json"), "utf8"));
+const zipPath = path.join(distDir, `mit-lecture-study-sidebar-v${manifest.version}.zip`);
 
 await rm(path.dirname(packageDir), { recursive: true, force: true });
 await mkdir(packageDir, { recursive: true });

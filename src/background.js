@@ -5,21 +5,32 @@ import {
   mergePartialStudyPacks,
   ModelJsonParseError,
   normalizeRemoteStudyPack,
+  normalizeVisualTextAnalysisResult,
   safeParseModelJson
 } from "./background-utils.mjs";
+import {
+  getLocalSaveDirectoryHandle,
+  queryLocalSaveDirectoryPermission
+} from "./local-save-directory.js";
+import {
+  buildLocalLectureFiles,
+  LECTURE_IMAGES_DIR,
+  LECTURE_FILES_DIR,
+  LECTURE_LIBRARY_CSV_FILE,
+  prepareLocalLectureRecord,
+  upsertCsvRecord
+} from "./local-save-utils.mjs";
 
 const DEFAULT_SETTINGS = {
+  autoAnalyze: false,
   sidebarWidth: 420,
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
-  ollamaBaseUrl: "http://127.0.0.1:11434",
-  ollamaVisionModel: "qwen2.5vl:3b",
+  visualScanIntervalSeconds: 45,
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
-
-const LOCAL_CSV_ENDPOINT = "http://127.0.0.1:45873/lecture";
 
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
@@ -30,10 +41,20 @@ function normalizeSettings(stored = {}) {
   const settings = {
     ...DEFAULT_SETTINGS,
     ...stored,
+    autoAnalyze: Boolean(stored.autoAnalyze),
+    visualScanIntervalSeconds: normalizeVisualScanInterval(stored.visualScanIntervalSeconds),
     outputLanguage: "zh-CN"
   };
 
   return settings;
+}
+
+function normalizeVisualScanInterval(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) {
+    return DEFAULT_SETTINGS.visualScanIntervalSeconds;
+  }
+  return Math.max(5, Math.min(300, Math.round(seconds)));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -61,8 +82,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "TEST_OLLAMA_CONNECTION") {
-    testOllamaConnection()
+  if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
+    runDeepSeekAnalysis(message.payload, sender.tab?.id)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) =>
         sendResponse({
@@ -73,8 +94,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
-    runDeepSeekAnalysis(message.payload, sender.tab?.id)
+  if (message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS") {
+    runDeepSeekVisualTextAnalysis(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) =>
         sendResponse({
@@ -97,20 +118,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
-    runOllamaVisualAnalysis(message.payload)
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) =>
-        sendResponse({
-          ok: false,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      );
-    return true;
-  }
-
-  if (message?.type === "SAVE_LECTURE_CSV") {
-    saveLectureCsv(message.payload)
+  if (message?.type === "SAVE_LECTURE_LOCAL") {
+    saveLectureLocal(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) =>
         sendResponse({
@@ -124,20 +133,92 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-async function saveLectureCsv(payload) {
-  const response = await fetch(LOCAL_CSV_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json().catch(() => null);
-  if (!response.ok || !result?.ok) {
-    throw new Error(result?.error || `本地 CSV 服务保存失败，状态码 ${response.status}。`);
+async function saveLectureLocal(payload) {
+  const directoryHandle = await getLocalSaveDirectoryHandle();
+  if (!directoryHandle) {
+    throw new Error("还没有选择本地保存目录，请到设置里点击“选择目录”。");
   }
-  return result;
+
+  const permission = await queryLocalSaveDirectoryPermission(directoryHandle);
+  if (permission !== "granted") {
+    throw new Error("本地保存目录权限已失效，请到设置里重新选择目录。");
+  }
+
+  const prepared = prepareLocalLectureRecord(payload);
+  const csvFileHandle = await directoryHandle.getFileHandle(LECTURE_LIBRARY_CSV_FILE, { create: true });
+  const existingCsvText = await readTextFile(csvFileHandle);
+  const { csvText, rowCount } = upsertCsvRecord(existingCsvText, prepared.record);
+  await writeTextFile(csvFileHandle, csvText);
+
+  const files = buildLocalLectureFiles(prepared.record);
+  const lecturesDirectory = await directoryHandle.getDirectoryHandle(LECTURE_FILES_DIR, { create: true });
+  const lectureDirectory = await lecturesDirectory.getDirectoryHandle(files.folderName, { create: true });
+  await writeTextFile(await lectureDirectory.getFileHandle(files.jsonFileName, { create: true }), files.jsonText);
+  await writeTextFile(await lectureDirectory.getFileHandle(files.markdownFileName, { create: true }), files.markdownText);
+  await writeLectureImageAssets(lectureDirectory, prepared.imageAssets);
+
+  return {
+    directoryName: directoryHandle.name || "",
+    csvPath: `${directoryHandle.name || "所选目录"}/${LECTURE_LIBRARY_CSV_FILE}`,
+    lecturePath: `${directoryHandle.name || "所选目录"}/${LECTURE_FILES_DIR}/${files.folderName}`,
+    imageCount: prepared.imageAssets.length,
+    rowCount,
+    videoId: payload?.video_id || payload?.videoId || ""
+  };
+}
+
+async function writeLectureImageAssets(lectureDirectory, imageAssets) {
+  if (!Array.isArray(imageAssets) || !imageAssets.length) {
+    return;
+  }
+
+  const imageDirectory = await lectureDirectory.getDirectoryHandle(LECTURE_IMAGES_DIR, { create: true });
+  for (const asset of imageAssets) {
+    const fileHandle = await imageDirectory.getFileHandle(asset.fileName, { create: true });
+    await writeBlobFile(fileHandle, dataUrlToBlob(asset.dataUrl, asset.mimeType));
+  }
+}
+
+async function readTextFile(fileHandle) {
+  try {
+    const file = await fileHandle.getFile();
+    return file.text();
+  } catch (_error) {
+    return "";
+  }
+}
+
+async function writeTextFile(fileHandle, text) {
+  const writable = await fileHandle.createWritable();
+  try {
+    await writable.write(text);
+  } finally {
+    await writable.close();
+  }
+}
+
+async function writeBlobFile(fileHandle, blob) {
+  const writable = await fileHandle.createWritable();
+  try {
+    await writable.write(blob);
+  } finally {
+    await writable.close();
+  }
+}
+
+function dataUrlToBlob(dataUrl, fallbackMimeType = "application/octet-stream") {
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    throw new Error("图片数据格式无效，无法写入本地文件。");
+  }
+
+  const mimeType = match[1] || fallbackMimeType;
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
 }
 
 async function captureVisibleTab() {
@@ -213,19 +294,6 @@ async function runDeepSeekAnalysis(payload, tabId) {
 
   sendAnalysisProgress(tabId, payload.videoId, 90, "大纲已覆盖全片，正在整理保存");
   return normalizeRemoteStudyPack(chinesePack, payload.transcript, payload.videoTitle);
-}
-
-async function runOllamaVisualAnalysis(payload) {
-  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  config.outputLanguage = "zh-CN";
-
-  const frame = payload?.frame;
-  if (!frame?.imageDataUrl) {
-    throw new Error("缺少可分析的视频画面。");
-  }
-
-  const result = await requestOllamaVisualJson(buildOllamaVisualPrompt(payload), frame.imageDataUrl, config);
-  return normalizeVisualAnalysis(result, frame);
 }
 
 async function generateChunkStudyPack({ payload, config, chunk, index, total, tabId }) {
@@ -369,77 +437,6 @@ function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex
   ];
 }
 
-function buildOllamaVisualPrompt(payload) {
-  const frame = payload.frame || {};
-  const schemaExample = {
-    title: "画面中文标题",
-    visualType: "slides",
-    shouldKeep: true,
-    bullets: ["中文要点"],
-    visibleText: ["画面中的关键词"],
-    relationToTranscript: "这张画面和当前讲解的关系"
-  };
-
-  const contextText = (payload.transcriptContext || [])
-    .map((entry) => `[${formatTime(entry.startMs)}] ${entry.text}`)
-    .join("\n");
-
-  return (
-    `你是一个课程视频画面分析助手。请分析这张视频帧里是否有 PPT、图示、公式或板书。\n` +
-    `所有面向用户的内容必须用简体中文。只根据画面可见内容分析，不要编造。\n` +
-    `返回严格 JSON，不要 markdown，格式必须匹配：${JSON.stringify(schemaExample)}\n\n` +
-    `规则：\n` +
-    `1. 如果画面不是有用的课程 PPT、图示、公式或板书，shouldKeep=false，bullets 保持很短。\n` +
-    `2. 如果有用，请解释画面内容，并明确它是画面信息，不要和字幕大纲混在一起。\n` +
-    `3. visibleText 只列出画面中重要的文字、公式或标签。\n` +
-    `4. 附近字幕只能用于辅助理解，不要把字幕当成画面事实。\n` +
-    `5. 视频标题：${payload.videoTitle || ""}\n` +
-    `6. 画面时间：${formatTime((frame.seconds || 0) * 1000)}\n\n` +
-    `附近字幕：\n${contextText || "-"}`
-  );
-}
-
-function normalizeVisualAnalysis(result, frame) {
-  const shouldKeep = result?.shouldKeep !== false;
-  return {
-    timestamp: formatTime((frame.seconds || 0) * 1000),
-    seconds: Math.max(0, Math.round(Number(frame.seconds) || 0)),
-    title: String(result?.title || "画面内容").trim(),
-    visualType: String(result?.visualType || "visual").trim(),
-    shouldKeep,
-    bullets: Array.isArray(result?.bullets)
-      ? result.bullets.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6)
-      : [],
-    visibleText: Array.isArray(result?.visibleText)
-      ? result.visibleText.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
-      : [],
-    relationToTranscript: String(result?.relationToTranscript || "").trim()
-  };
-}
-
-async function testOllamaConnection() {
-  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  const baseUrl = trimTrailingSlash(config.ollamaBaseUrl || DEFAULT_SETTINGS.ollamaBaseUrl);
-  const model = config.ollamaVisionModel || DEFAULT_SETTINGS.ollamaVisionModel;
-  const response = await fetch(`${baseUrl}/api/tags`);
-  if (!response.ok) {
-    throw new Error(`Ollama 连接失败，状态码 ${response.status}。请确认 ollama serve 已启动。`);
-  }
-
-  const payload = await response.json();
-  const models = Array.isArray(payload?.models) ? payload.models : [];
-  const exists = models.some((item) => item?.name === model || item?.model === model);
-  if (!exists) {
-    throw new Error(`Ollama 已启动，但没有找到模型 ${model}。请执行：ollama pull ${model}`);
-  }
-
-  return {
-    status: "ok",
-    model,
-    message: "本地 Ollama 视觉模型可用。"
-  };
-}
-
 async function ensureChineseOutline(payload, config, pack) {
   if (!hasMostlyEnglishOutline(pack)) {
     return pack;
@@ -514,6 +511,139 @@ function buildDeepSeekChineseRewriteMessages(payload, pack) {
   ];
 }
 
+async function runDeepSeekVisualTextAnalysis(payload) {
+  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  config.outputLanguage = "zh-CN";
+  if (!config.deepseekApiKey) {
+    throw new Error("缺少 DeepSeek API Key，请打开插件设置填写。");
+  }
+
+  const rawText = String(payload?.extraction?.rawVisibleText || "").trim();
+  if (!rawText) {
+    throw new Error("画面本地 OCR 没有提取到可分析文字。");
+  }
+
+  try {
+    const result = await requestDeepSeekJson(buildDeepSeekVisualTextMessages(payload), config, {
+      repairMessagesBuilder: buildDeepSeekVisualJsonRepairMessages
+    });
+    return normalizeVisualTextAnalysisResult(result, payload?.extraction || {}, payload?.videoTitle || "");
+  } catch (error) {
+    if (!(error instanceof ModelJsonParseError)) {
+      throw error;
+    }
+    const repaired = await requestDeepSeekJson(buildDeepSeekVisualJsonRepairMessages(error.rawText), config, {
+      allowRepair: false
+    });
+    return normalizeVisualTextAnalysisResult(repaired, payload?.extraction || {}, payload?.videoTitle || "");
+  }
+}
+
+function buildDeepSeekVisualTextMessages(payload) {
+  const extraction = payload?.extraction || {};
+  const visualType = normalizeVisualType(extraction.visualType || extraction.keyFrame?.visualType);
+  const visualTypeLabel = getVisualTypeLabel(visualType);
+  const schemaExample = {
+    title: "中文标题",
+    bullets: ["中文要点"],
+    relationToTranscript: "和当前讲解的关系",
+    tags: ["标签"],
+    visualType
+  };
+  const transcriptContext = Array.isArray(payload?.transcriptContext)
+    ? payload.transcriptContext
+        .map((entry) => `[${formatTime(entry.startMs || 0)}] ${entry.text}`)
+        .join("\n")
+    : "";
+
+  return [
+    {
+      role: "system",
+      content:
+        "You analyze OCR text extracted locally from lecture visual frames such as slides, blackboards, whiteboards, or screen shares. Output valid JSON only. " +
+        "The image itself was not sent to you. Do not claim visual details beyond the provided OCR text. " +
+        "All user-facing fields must be Simplified Chinese. Keep technical terms in English only when necessary. " +
+        "Do not call a blackboard or whiteboard a PPT."
+    },
+    {
+      role: "user",
+      content:
+        `根据下面的本地 OCR 原文分析这张${visualTypeLabel}关键帧。\n` +
+        `要求：\n` +
+        `1. 只基于 OCR 原文和附近字幕，不要编造图像细节。\n` +
+        `2. 输出中文标题、2-4 个中文要点、和当前讲解的关系、3-6 个中文检索标签。\n` +
+        `3. 如果 OCR 原文很短，只做保守概括。\n` +
+        `4. 返回严格 JSON，结构必须是：${JSON.stringify(schemaExample)}\n` +
+        `5. visualType 必须保持为 "${visualType}"，不要改成其他类型。\n` +
+        `6. video title: ${payload?.videoTitle || ""}\n` +
+        `7. timestamp: ${extraction.timestamp || ""}\n\n` +
+        `OCR 原文：\n${String(extraction.rawVisibleText || "").slice(0, 4000)}\n\n` +
+        `附近字幕：\n${transcriptContext.slice(0, 3000)}`
+    }
+  ];
+}
+
+function buildDeepSeekVisualJsonRepairMessages(rawText) {
+  const schemaExample = {
+    title: "中文标题",
+    bullets: ["中文要点"],
+    relationToTranscript: "和当前讲解的关系",
+    tags: ["标签"],
+    visualType: "ppt"
+  };
+
+  return [
+    {
+      role: "system",
+      content:
+        "You repair malformed JSON from a lecture visual text analyzer. Output valid JSON only. " +
+        "Do not add new facts. Preserve the Chinese meaning as much as possible."
+    },
+    {
+      role: "user",
+      content:
+        `Repair this malformed JSON into strict JSON matching this schema exactly: ${JSON.stringify(schemaExample)}\n` +
+        `Rules:\n` +
+        `1. Return JSON only, no markdown.\n` +
+        `2. Keep only title, bullets, relationToTranscript, tags, visualType.\n` +
+        `3. User-facing text must be Simplified Chinese.\n` +
+        `4. visualType must be one of: ppt, blackboard, whiteboard, screen, visual.\n\n` +
+        `Malformed JSON:\n${String(rawText || "").slice(0, 8000)}`
+    }
+  ];
+}
+
+function normalizeVisualType(value) {
+  const normalized = String(value || "visual").trim().toLowerCase();
+  if (normalized === "slide" || normalized === "slides") {
+    return "ppt";
+  }
+  if (normalized === "chalkboard") {
+    return "blackboard";
+  }
+  if (["ppt", "blackboard", "whiteboard", "screen", "visual"].includes(normalized)) {
+    return normalized;
+  }
+  return "visual";
+}
+
+function getVisualTypeLabel(value) {
+  const visualType = normalizeVisualType(value);
+  if (visualType === "ppt") {
+    return "PPT";
+  }
+  if (visualType === "blackboard") {
+    return "板书";
+  }
+  if (visualType === "whiteboard") {
+    return "白板";
+  }
+  if (visualType === "screen") {
+    return "屏幕";
+  }
+  return "画面";
+}
+
 async function requestDeepSeekJson(messages, config, options = {}) {
   const response = await fetch(`${trimTrailingSlash(config.deepseekBaseUrl)}/chat/completions`, {
     method: "POST",
@@ -546,47 +676,13 @@ async function requestDeepSeekJson(messages, config, options = {}) {
     if (options.allowRepair === false || !(error instanceof ModelJsonParseError)) {
       throw error;
     }
+    if (typeof options.repairMessagesBuilder === "function") {
+      return requestDeepSeekJson(options.repairMessagesBuilder(error.rawText), config, {
+        allowRepair: false
+      });
+    }
     return repairDeepSeekJson(error.rawText, config);
   }
-}
-
-async function requestOllamaVisualJson(prompt, imageDataUrl, config) {
-  const baseUrl = trimTrailingSlash(config.ollamaBaseUrl || DEFAULT_SETTINGS.ollamaBaseUrl);
-  const model = config.ollamaVisionModel || DEFAULT_SETTINGS.ollamaVisionModel;
-  const response = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-          images: [stripDataUrlPrefix(imageDataUrl)]
-        }
-      ],
-      format: "json",
-      stream: false
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Ollama 画面分析失败，状态码 ${response.status}: ${errorText.slice(0, 300)}`);
-  }
-
-  const json = await response.json();
-  const content = json?.message?.content;
-  if (!content) {
-    throw new Error("Ollama 返回了空响应。");
-  }
-  return safeParseModelJson(content);
-}
-
-function stripDataUrlPrefix(dataUrl) {
-  return String(dataUrl || "").replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
 }
 
 function trimTrailingSlash(text) {

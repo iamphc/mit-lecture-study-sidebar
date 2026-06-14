@@ -62,6 +62,26 @@ body {
   gap: 8px;
 }
 
+.settings-checkbox {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.settings-checkbox input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.settings-checkbox small {
+  grid-column: 2;
+}
+
 .settings-form span {
   font-size: 14px;
   font-weight: 600;
@@ -71,6 +91,28 @@ body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.settings-directory-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.settings-directory-card p {
+  margin: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-directory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .settings-form input,
@@ -107,6 +149,16 @@ body {
 
 .settings-actions .secondary {
   background: #1f2937;
+}
+
+.settings-form .secondary {
+  background: #1f2937;
+}
+
+.settings-form .ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
 }
 
 #settings-status {

@@ -23,6 +23,8 @@ async function main() {
 
   await mustContain("harness/sidebar-harness.html", /MIT Sidebar Harness Lecture/);
   await mustContain("harness/mock-chrome.js", /RUN_DEEPSEEK_ANALYSIS/);
+  await mustContain("harness/mock-chrome.js", /RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS/);
+  await mustContain("harness/mock-chrome.js", /SAVE_LECTURE_LOCAL/);
 
   console.log("harness file checks passed");
 }

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Vision Harness</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 24px;
+      }
+
+      canvas {
+        border: 1px solid #999;
+        display: block;
+        margin-bottom: 16px;
+      }
+
+      pre {
+        background: #f4f4f4;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+
+      .candidate {
+        display: inline-block;
+        margin: 8px;
+        vertical-align: top;
+      }
+
+      .candidate img {
+        max-width: 320px;
+        border: 1px solid #ccc;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="slide" width="720" height="405"></canvas>
+    <div id="candidates"></div>
+    <pre id="status">准备测试本地视觉模型...</pre>
+    <script type="module">
+      globalThis.chrome = {
+        runtime: {
+          getURL(path) {
+            return new URL(`../../${path}`, window.location.href).toString();
+          }
+        }
+      };
+
+      const canvas = document.getElementById("slide");
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#050505";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 70, 365, 295);
+      context.fillStyle = "#111827";
+      context.font = "bold 38px sans-serif";
+      context.fillText("MIT Lecture", 42, 135);
+      context.font = "28px sans-serif";
+      context.fillText("CPU Instructions", 42, 215);
+      context.fillText("Memory Access", 42, 270);
+      context.fillStyle = "#d1d5db";
+      context.font = "24px sans-serif";
+      context.fillText("6.004 Fall 2018", 455, 126);
+      context.fillText("L01: The Digital Abstraction", 390, 164);
+
+      const status = document.getElementById("status");
+      const { debugBuildOcrCandidateImages, detectPptKeyFrame, extractRawPptInfo } = await import("../../src/local-vision.js");
+      const frame = {
+        seconds: 12,
+        timestamp: "00:12",
+        canvas
+      };
+      const keyFrame = detectPptKeyFrame(frame, { force: true });
+      status.textContent = `关键帧评分：${keyFrame.score}，正在提取 OCR 原文...`;
+      const debugImages = await debugBuildOcrCandidateImages(frame, { keyFrame });
+      const candidatesNode = document.getElementById("candidates");
+      candidatesNode.innerHTML = [
+        `<div class="candidate"><strong>source ${debugImages.source.width}x${debugImages.source.height}</strong><img src="${debugImages.source.dataUrl}" /></div>`,
+        ...debugImages.candidates.map((candidate) =>
+          `<div class="candidate"><strong>${candidate.kind} ${candidate.width}x${candidate.height}</strong><img src="${candidate.dataUrl}" /></div>`
+        )
+      ].join("");
+      const result = await extractRawPptInfo(
+        {
+          videoId: "local-vision-harness",
+          videoTitle: "Local Vision Harness",
+          frame,
+          transcriptContext: [
+            {
+              startMs: 10000,
+              text: "Today we discuss CPU instructions and memory access."
+            }
+          ]
+        },
+        {
+          keyFrame,
+          force: true,
+          onProgress(progress) {
+            if (progress.status === "progress_total") {
+              status.textContent = `正在下载模型 ${Math.round(progress.progress || 0)}%`;
+            }
+          }
+        }
+      );
+      status.textContent = JSON.stringify(result, null, 2);
+      window.__localVisionHarnessResult = result;
+    </script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MIT 课程学习侧边栏",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "把 YouTube 课程视频整理成中文大纲并保存到本地资料库。",
   "icons": {
     "16": "assets/icons/icon-16.png",
@@ -16,14 +16,17 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "http://127.0.0.1:11434/*",
-    "http://localhost:11434/*",
-    "http://127.0.0.1:45873/*",
-    "http://localhost:45873/*"
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://*.hf.co/*",
+    "https://*.xethub.hf.co/*"
   ],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "options_page": "src/options.html",
   "content_scripts": [
@@ -55,7 +58,9 @@
     {
       "resources": [
         "src/panel.html",
-        "src/page-bridge.js"
+        "src/page-bridge.js",
+        "src/local-vision.js",
+        "src/vendor/transformers/*"
       ],
       "matches": [
         "https://www.youtube.com/*"

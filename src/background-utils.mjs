@@ -81,6 +81,67 @@ export function normalizeRemoteStudyPack(pack, transcript, videoTitle) {
   };
 }
 
+export function normalizeVisualTextAnalysisResult(result, extraction = {}, videoTitle = "") {
+  const seconds = Number(extraction.seconds);
+  const normalizedSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  const visibleText = Array.isArray(extraction.visibleText)
+    ? extraction.visibleText.map((text) => String(text || "").trim()).filter(Boolean)
+    : [];
+  const visualType = normalizeVisualType(result?.visualType || extraction.visualType || extraction.keyFrame?.visualType);
+  const visualTypeLabel = getVisualTypeLabel(visualType);
+
+  return {
+    timestamp: extraction.timestamp || formatTime(normalizedSeconds * 1000),
+    seconds: normalizedSeconds,
+    title: String(result?.title || visibleText[0] || videoTitle || `${visualTypeLabel}关键画面`).trim(),
+    visualType,
+    shouldKeep: true,
+    bullets: Array.isArray(result?.bullets)
+      ? dedupeStrings(result.bullets.map((bullet) => String(bullet || "").trim()).filter(Boolean)).slice(0, 5)
+      : [],
+    visibleText,
+    rawVisibleText: String(extraction.rawVisibleText || "").trim(),
+    relationToTranscript: String(result?.relationToTranscript || "").trim(),
+    tags: Array.isArray(result?.tags)
+      ? dedupeStrings(result.tags.map((tag) => String(tag || "").trim()).filter(Boolean)).slice(0, 8)
+      : [],
+    source: "deepseek-visual-text-analysis",
+    localExtraction: extraction,
+    keyFrame: extraction.keyFrame || null
+  };
+}
+
+function normalizeVisualType(value) {
+  const normalized = String(value || "visual").trim().toLowerCase();
+  if (normalized === "slide" || normalized === "slides") {
+    return "ppt";
+  }
+  if (normalized === "chalkboard") {
+    return "blackboard";
+  }
+  if (["ppt", "blackboard", "whiteboard", "screen", "visual"].includes(normalized)) {
+    return normalized;
+  }
+  return "visual";
+}
+
+function getVisualTypeLabel(value) {
+  const visualType = normalizeVisualType(value);
+  if (visualType === "ppt") {
+    return "PPT";
+  }
+  if (visualType === "blackboard") {
+    return "板书";
+  }
+  if (visualType === "whiteboard") {
+    return "白板";
+  }
+  if (visualType === "screen") {
+    return "屏幕";
+  }
+  return "画面";
+}
+
 export function mergePartialStudyPacks(partialPacks, videoTitle) {
   const packs = Array.isArray(partialPacks) ? partialPacks : [];
   const title = packs.find((pack) => pack?.title)?.title || videoTitle || "";

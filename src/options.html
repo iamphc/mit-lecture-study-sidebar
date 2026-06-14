@@ -12,10 +12,16 @@
         <p class="settings-kicker">MIT 课程学习</p>
         <h1>插件设置</h1>
         <p class="settings-copy">
-          使用 DeepSeek 根据课程内容生成中文大纲；PPT、图示和板书画面默认使用本地 Ollama 识别。
+          使用 DeepSeek 根据课程内容生成中文大纲；PPT 画面先在浏览器本地筛选关键帧并提取 OCR 原文，再只把文字交给 DeepSeek 分析。
         </p>
 
         <form id="settings-form" class="settings-form">
+          <label class="settings-checkbox">
+            <input name="autoAnalyze" type="checkbox" />
+            <span>自动分析课程视频</span>
+            <small>默认关闭。打开后，只要进入 YouTube 视频就会自动读取课程内容、生成中文大纲，并定时扫描 PPT 画面；关闭后只在你点击“生成大纲”时处理当前视频。</small>
+          </label>
+
           <label>
             <span>DeepSeek API Key</span>
             <input name="deepseekApiKey" type="password" placeholder="sk-..." autocomplete="off" />
@@ -32,14 +38,27 @@
           </label>
 
           <label>
-            <span>本地 Ollama 地址</span>
-            <input name="ollamaBaseUrl" type="url" placeholder="http://127.0.0.1:11434" />
+            <span>画面扫描间隔</span>
+            <input name="visualScanIntervalSeconds" type="number" min="5" max="300" step="5" />
+            <small>单位：秒。广告播放时会暂停画面分析并每 5 秒短重试；正常课程画面按这里的间隔扫描。</small>
           </label>
 
+          <section class="settings-directory-card">
+            <div>
+              <span>本地保存目录</span>
+              <small>生成完成后自动保存到这个目录：根目录写入 lecture_library.csv，每个视频另存 lectures/&lt;video_id&gt;/lecture.json 和 study_pack.md。</small>
+            </div>
+            <div class="settings-directory-actions">
+              <button type="button" id="choose-save-directory" class="secondary">选择目录</button>
+              <button type="button" id="clear-save-directory" class="ghost">清除</button>
+            </div>
+            <p id="save-directory-status">还没有选择目录</p>
+          </section>
+
           <label>
-            <span>本地视觉模型</span>
-            <input name="ollamaVisionModel" type="text" placeholder="qwen2.5vl:3b" />
-            <small>建议先执行：ollama pull qwen2.5vl:3b</small>
+            <span>本地保存目录状态</span>
+            <input name="localSaveDirectoryName" type="text" readonly placeholder="未选择" />
+            <small>浏览器安全限制下不能手动输入路径，必须点击“选择目录”授权。授权后插件可以自动保存，不需要运行 npm run csv-server。</small>
           </label>
 
           <label>
@@ -66,7 +85,6 @@
           <div class="settings-actions">
             <button type="submit">保存设置</button>
             <button type="button" id="test-connection" class="secondary">测试 DeepSeek</button>
-            <button type="button" id="test-ollama" class="secondary">测试本地视觉模型</button>
             <span id="settings-status"></span>
           </div>
         </form>

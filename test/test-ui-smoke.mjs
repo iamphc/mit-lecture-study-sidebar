@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,19 +12,21 @@ async function loadText(relativePath) {
   return readFile(path.join(rootDir, relativePath), "utf8");
 }
 
-function buildMockChrome() {
+function buildMockChrome(syncOverrides = {}) {
   const syncStore = {
+    autoAnalyze: false,
     sidebarWidth: 420,
     deepseekApiKey: "mock-key",
     deepseekBaseUrl: "https://api.deepseek.com",
     deepseekModel: "deepseek-v4-flash",
-    ollamaBaseUrl: "http://127.0.0.1:11434",
-    ollamaVisionModel: "qwen2.5vl:3b",
+    visualScanIntervalSeconds: 45,
     outputLanguage: "zh-CN",
-    noteTone: "study-handout"
+    noteTone: "study-handout",
+    ...syncOverrides
   };
 
   const localStore = {
+    localSaveDirectoryName: "MockSave",
     recentLectures: []
   };
 
@@ -60,27 +62,24 @@ function buildMockChrome() {
             }
           };
         }
+        if (message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS") {
+          return {
+            ok: true,
+            result: {
+              title: "事件触发的 PPT 分析",
+              visualType: "ppt",
+              bullets: ["通过 timeupdate 或回前台补扫触发。"],
+              relationToTranscript: "对应当前播放位置的字幕上下文。",
+              tags: ["PPT", "事件触发"]
+            }
+          };
+        }
         if (message?.type === "CAPTURE_VISIBLE_TAB") {
           return {
             ok: true,
             result: {
               dataUrl:
                 "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg=="
-            }
-          };
-        }
-        if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
-          return {
-            ok: true,
-            result: {
-              timestamp: "00:10",
-              seconds: 10,
-              title: "模拟 PPT 画面",
-              visualType: "slides",
-              shouldKeep: true,
-              bullets: ["画面里有课程结构。"],
-              visibleText: ["MIT"],
-              relationToTranscript: "补充当前讲解。"
             }
           };
         }
@@ -94,21 +93,12 @@ function buildMockChrome() {
             }
           };
         }
-        if (message?.type === "TEST_OLLAMA_CONNECTION") {
+        if (message?.type === "SAVE_LECTURE_LOCAL") {
           return {
             ok: true,
             result: {
-              status: "ok",
-              model: syncStore.ollamaVisionModel,
-              message: "ok"
-            }
-          };
-        }
-        if (message?.type === "SAVE_LECTURE_CSV") {
-          return {
-            ok: true,
-            result: {
-              csvPath: "/tmp/lecture_library.csv",
+              csvPath: "MockSave/lecture_library.csv",
+              lecturePath: "MockSave/lectures/mock",
               rowCount: 1
             }
           };
@@ -192,6 +182,34 @@ function installClipboardMock(window) {
   });
 }
 
+function installCanvasMock(window, options = {}) {
+  const getPixelSeed = () => Math.max(1, Math.floor(Number(options.seed?.() || 80)));
+  window.HTMLCanvasElement.prototype.getContext = function getContext() {
+    return {
+      fillStyle: "#ffffff",
+      fillRect() {},
+      drawImage(source) {
+        if (options.failVideoDraw?.() && source instanceof window.HTMLVideoElement) {
+          throw new Error("hidden video frame unavailable");
+        }
+      },
+      getImageData(_x, _y, width, height) {
+        const data = new Uint8ClampedArray(Math.max(1, width * height * 4));
+        const seed = getPixelSeed();
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = seed;
+          data[index + 1] = Math.max(0, seed - 20);
+          data[index + 2] = Math.max(0, seed - 40);
+          data[index + 3] = 255;
+        }
+        return { data };
+      }
+    };
+  };
+  window.HTMLCanvasElement.prototype.toDataURL = () =>
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg==";
+}
+
 function createDeferred() {
   let resolve;
   let reject;
@@ -241,11 +259,46 @@ async function testOptions() {
     assert.match(heading, /插件设置/);
     const modelInput = dom.window.document.querySelector('input[name="deepseekModel"]');
     assert.equal(modelInput?.value, "deepseek-v4-flash");
-    const visualModelInput = dom.window.document.querySelector('input[name="ollamaVisionModel"]');
-    assert.equal(visualModelInput?.value, "qwen2.5vl:3b");
+    const autoAnalyzeInput = dom.window.document.querySelector('input[name="autoAnalyze"]');
+    assert.equal(autoAnalyzeInput?.checked, false);
+    assert.match(dom.window.document.body.textContent || "", /自动分析课程视频/);
+    assert.match(dom.window.document.body.textContent || "", /默认关闭/);
+    const visualIntervalInput = dom.window.document.querySelector('input[name="visualScanIntervalSeconds"]');
+    assert.equal(visualIntervalInput?.value, "45");
+    const localSaveInput = dom.window.document.querySelector('input[name="localSaveDirectoryName"]');
+    assert.equal(localSaveInput?.value, "MockSave");
+    assert.match(dom.window.document.body.textContent || "", /本地保存目录/);
+    assert.match(dom.window.document.body.textContent || "", /lecture_library\.csv/);
+    assert.equal(dom.window.document.querySelector('button[id^="test-"][id$="vision"]'), null);
+    assert.match(dom.window.document.body.textContent || "", /浏览器本地筛选关键帧/);
   } finally {
     dom.window.close();
   }
+}
+
+async function testAutoAnalyzeDisabledByDefault() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>Entertainment Video - YouTube</title></head><body><h1 class="title">Entertainment Video</h1><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=fun000",
+      runScripts: "dangerously"
+    }
+  );
+
+  const chrome = buildMockChrome();
+  dom.window.chrome = chrome;
+  installClipboardMock(dom.window);
+  dom.window.eval(scriptUtils);
+  dom.window.eval(contentScript);
+  await new Promise((resolve) => setTimeout(resolve, 520));
+
+  const summaryText = dom.window.document.querySelector(".mit-study-summary-card")?.textContent || "";
+  assert.match(summaryText, /自动分析已关闭/);
+  assert.equal(chrome.__messages.some((message) => message?.type === "RUN_DEEPSEEK_ANALYSIS"), false);
+  assert.equal(chrome.__messages.some((message) => message?.type === "CAPTURE_VISIBLE_TAB"), false);
+  dom.window.close();
 }
 
 async function testSidebar() {
@@ -259,7 +312,7 @@ async function testSidebar() {
     }
   );
 
-  dom.window.chrome = buildMockChrome();
+  dom.window.chrome = buildMockChrome({ autoAnalyze: true });
   installClipboardMock(dom.window);
   dom.window.ytInitialData = {
     engagementPanels: [
@@ -333,7 +386,9 @@ async function testSidebar() {
   assert.equal(dom.window.document.querySelector('[data-action="fetch-captions"]'), null);
   assert.equal(dom.window.document.querySelector('[data-tab="transcript"]'), null);
   const summaryText = dom.window.document.querySelector(".mit-study-summary-card")?.textContent || "";
-  assert.match(summaryText, /大纲已生成并保存到资料库|CSV 已保存/);
+  assert.match(summaryText, /已保存到本地目录|大纲已生成/);
+  assert.equal(dom.window.chrome.__messages.some((message) => message?.type === "SAVE_LECTURE_LOCAL"), true);
+  assert.equal(dom.window.chrome.__messages.some((message) => message?.type === "SAVE_LECTURE_CSV"), false);
   dom.window.close();
 }
 
@@ -348,15 +403,15 @@ async function testSidebarDeepSeekFailureShowsError() {
     }
   );
 
-  const chrome = buildMockChrome();
+  const chrome = buildMockChrome({ autoAnalyze: true });
   installClipboardMock(dom.window);
   chrome.runtime.sendMessage = async (message) => {
     chrome.__messages.push(message);
     if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
       return { ok: false, error: "mock DeepSeek outage" };
     }
-    if (message?.type === "SAVE_LECTURE_CSV") {
-      return { ok: true, result: { csvPath: "/tmp/lecture_library.csv", rowCount: 1 } };
+    if (message?.type === "SAVE_LECTURE_LOCAL") {
+      return { ok: true, result: { csvPath: "MockSave/lecture_library.csv", rowCount: 1 } };
     }
     return { ok: true };
   };
@@ -419,7 +474,7 @@ async function testCaptionTrackFallback() {
     }
   );
 
-  dom.window.chrome = buildMockChrome();
+  dom.window.chrome = buildMockChrome({ autoAnalyze: true });
   dom.window.chrome.runtime.getURL = undefined;
   installClipboardMock(dom.window);
   dom.window.ytInitialPlayerResponse = {
@@ -488,7 +543,7 @@ async function testCaptionTrackFallback() {
   await new Promise((resolve) => setTimeout(resolve, 520));
 
   const captionsCardText = dom.window.document.querySelector(".mit-study-summary-card")?.textContent || "";
-  assert.match(captionsCardText, /生成完成|大纲已生成|CSV 已保存/);
+  assert.match(captionsCardText, /生成完成|大纲已生成/);
   assert.equal(dom.window.document.querySelector(".mit-study-diagnostics-card"), null);
   dom.window.close();
 }
@@ -504,7 +559,7 @@ async function testInnertubePlayerFallback() {
     }
   );
 
-  dom.window.chrome = buildMockChrome();
+  dom.window.chrome = buildMockChrome({ autoAnalyze: true });
   dom.window.chrome.runtime.getURL = undefined;
   installClipboardMock(dom.window);
   dom.window.yt = {
@@ -584,7 +639,7 @@ async function testInnertubePlayerFallback() {
   await new Promise((resolve) => setTimeout(resolve, 520));
 
   const captionsCardText = dom.window.document.querySelector(".mit-study-summary-card")?.textContent || "";
-  assert.match(captionsCardText, /生成完成|大纲已生成|CSV 已保存/);
+  assert.match(captionsCardText, /生成完成|大纲已生成/);
   assert.equal(sawInnertubePlayerRequest, true);
   assert.equal(dom.window.document.querySelector(".mit-study-diagnostics-card"), null);
   dom.window.close();
@@ -601,7 +656,7 @@ async function testTranscriptApiUsesHtmlYtcfgFallback() {
     }
   );
 
-  dom.window.chrome = buildMockChrome();
+  dom.window.chrome = buildMockChrome({ autoAnalyze: true });
   dom.window.chrome.runtime.getURL = undefined;
   installClipboardMock(dom.window);
   dom.window.ytInitialData = {
@@ -705,7 +760,7 @@ async function testTranscriptApiUsesHtmlYtcfgFallback() {
   await new Promise((resolve) => setTimeout(resolve, 520));
 
   const captionsCardText = dom.window.document.querySelector(".mit-study-summary-card")?.textContent || "";
-  assert.match(captionsCardText, /生成完成|大纲已生成|CSV 已保存/);
+  assert.match(captionsCardText, /生成完成|大纲已生成/);
   assert.equal(sawTranscriptApi, true);
   dom.window.close();
 }
@@ -721,7 +776,7 @@ async function testDeepSeekModeWithoutApiKeyShowsPrompt() {
     }
   );
 
-  const chrome = buildMockChrome();
+  const chrome = buildMockChrome({ autoAnalyze: true });
   chrome.storage.sync.set({
     deepseekApiKey: ""
   });
@@ -767,15 +822,15 @@ async function testProgressiveOutlineRendersPartialPack() {
     }
   );
 
-  const chrome = buildMockChrome();
+  const chrome = buildMockChrome({ autoAnalyze: true });
   const deepSeekDeferred = createDeferred();
   chrome.runtime.sendMessage = async (message) => {
     chrome.__messages.push(message);
     if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
       return deepSeekDeferred.promise;
     }
-    if (message?.type === "SAVE_LECTURE_CSV") {
-      return { ok: true, result: { csvPath: "/tmp/lecture_library.csv", rowCount: 1 } };
+    if (message?.type === "SAVE_LECTURE_LOCAL") {
+      return { ok: true, result: { csvPath: "MockSave/lecture_library.csv", rowCount: 1 } };
     }
     return { ok: true };
   };
@@ -852,7 +907,7 @@ async function testProgressiveOutlineRendersPartialPack() {
   assert.match(sidebarText, /第一段先显示/);
   assert.match(sidebarText, /这段大纲不等待最终合并/);
   assert.match(sidebarText, /55%/);
-  assert.doesNotMatch(sidebarText, /大纲已生成并保存到资料库/);
+  assert.doesNotMatch(sidebarText, /大纲已生成/);
 
   deepSeekDeferred.resolve({
     ok: true,
@@ -869,6 +924,7 @@ async function testProgressiveOutlineRendersPartialPack() {
     }
   });
   await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(chrome.__messages.some((message) => message?.type === "SAVE_LECTURE_CSV"), false);
   dom.window.close();
 }
 
@@ -916,7 +972,39 @@ async function testVisualAnalysisTabRendersSeparately() {
           shouldKeep: true,
           bullets: ["流程图展示输入到输出的路径。"],
           visibleText: ["Input", "Output"],
-          relationToTranscript: "对应老师正在解释的数据流。"
+          relationToTranscript: "对应老师正在解释的数据流。",
+          framePreview:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg==",
+          ocrRegionPreview:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg==",
+          keyFrame: {
+            score: 0.81,
+            region: { name: "left" },
+            candidateScores: [
+              { name: "left", score: 0.81 },
+              { name: "full", score: 0.62 }
+            ]
+          }
+        },
+        {
+          timestamp: "00:49",
+          seconds: 49,
+          title: "线性代数基础",
+          visualType: "ppt",
+          shouldKeep: true,
+          bullets: ["介绍课程内容和计划。"],
+          visibleText: ["18.06 Linear Algebra"],
+          rawVisibleText: "18.06 Linear Algebra",
+          relationToTranscript: "对应老师开始介绍课程。",
+          keyFrame: {
+            source: "local-keyframe-detector-v1",
+            score: 0.73,
+            stats: {
+              darkRatio: 0.62,
+              brightRatio: 0.08,
+              meanLuma: 0.28
+            }
+          }
         }
       ]
     }
@@ -936,15 +1024,175 @@ async function testVisualAnalysisTabRendersSeparately() {
   dom.window.document.querySelector('[data-tab="visual"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const visualPaneText = dom.window.document.querySelector('[data-pane="visual"]')?.textContent || "";
+  assert.match(visualPaneText, /画面自动扫描/);
+  assert.match(visualPaneText, /自动分析关闭/);
+  assert.match(visualPaneText, /下次扫描/);
   assert.match(visualPaneText, /PPT 里的流程图/);
   assert.match(visualPaneText, /流程图展示输入到输出的路径/);
-  assert.match(visualPaneText, /画面文字/);
+  assert.match(visualPaneText, /PPT原文/);
+  assert.match(visualPaneText, /线性代数基础/);
+  assert.match(visualPaneText, /板书原文/);
+  assert.match(visualPaneText, /关键帧截图/);
+  assert.match(visualPaneText, /OCR 识别区域/);
+  assert.match(visualPaneText, /关键帧信息/);
+  assert.match(visualPaneText, /画面类型/);
+  assert.equal(dom.window.document.querySelectorAll('[data-pane="visual"] img').length, 2);
   dom.window.close();
+}
+
+async function testVisualAnalysisSkipsYouTubeAds() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>MIT Sidebar Smoke - YouTube</title></head><body><h1 class="title">MIT Sidebar Smoke</h1><div id="movie_player" class="html5-video-player ad-showing"></div><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=smoke889",
+      runScripts: "dangerously",
+      pretendToBeVisual: true
+    }
+  );
+
+  const chrome = buildMockChrome({ autoAnalyze: true });
+  await chrome.storage.local.set({
+    "studyPack:smoke889": {
+      updatedAt: new Date().toISOString(),
+      videoTitle: "MIT Sidebar Smoke",
+      studyPackCacheVersion: "outline-zh-v1",
+      transcript: [
+        {
+          startMs: 0,
+          durationMs: 3000,
+          text: "Visual frame context."
+        }
+      ],
+      studyPack: {
+        title: "模拟课程",
+        outline: [
+          {
+            timestamp: "00:00",
+            seconds: 0,
+            heading: "字幕大纲",
+            bullets: ["字幕内容。"]
+          }
+        ]
+      },
+      visualAnalysis: []
+    }
+  });
+
+  installClipboardMock(dom.window);
+  dom.window.chrome = chrome;
+  dom.window.eval(scriptUtils);
+  dom.window.eval(contentScript);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  const video = dom.window.document.querySelector("video");
+  Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+  Object.defineProperty(video, "currentTime", { value: 12, configurable: true });
+
+  dom.window.document.querySelector('[data-tab="visual"]')?.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const visualPaneText = dom.window.document.querySelector('[data-pane="visual"]')?.textContent || "";
+  assert.match(visualPaneText, /检测到广告，已暂停画面分析/);
+  assert.match(visualPaneText, /广告播放中/);
+  assert.equal(chrome.__messages.some((message) => message?.type === "CAPTURE_VISIBLE_TAB"), false);
+  assert.equal(chrome.__messages.some((message) => message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS"), false);
+  dom.window.close();
+}
+
+async function testVisualAnalysisRescansAfterHiddenTab() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>MIT Hidden Tab Smoke - YouTube</title></head><body><h1 class="title">MIT Hidden Tab Smoke</h1><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=smoke890",
+      runScripts: "dangerously",
+      pretendToBeVisual: true
+    }
+  );
+
+  const chrome = buildMockChrome({ autoAnalyze: true, visualScanIntervalSeconds: 5 });
+  const localVisionStubUrl = pathToFileURL(path.join(rootDir, "test/harness/local-vision-stub.mjs")).href;
+  chrome.runtime.getURL = (resourcePath) =>
+    resourcePath === "src/local-vision.js" ? localVisionStubUrl : `chrome-extension://test-extension/${resourcePath}`;
+  await chrome.storage.local.set({
+    "studyPack:smoke890": {
+      updatedAt: new Date().toISOString(),
+      videoTitle: "MIT Hidden Tab Smoke",
+      studyPackCacheVersion: "outline-zh-v1",
+      transcript: [
+        {
+          startMs: 10000,
+          durationMs: 6000,
+          text: "CPU instruction context."
+        }
+      ],
+      studyPack: {
+        title: "模拟课程",
+        outline: [
+          {
+            timestamp: "00:10",
+            seconds: 10,
+            heading: "字幕大纲",
+            bullets: ["字幕内容。"]
+          }
+        ]
+      },
+      visualAnalysis: []
+    }
+  });
+
+  try {
+    Object.defineProperty(dom.window.document, "visibilityState", {
+      value: "hidden",
+      configurable: true
+    });
+    installCanvasMock(dom.window, {
+      failVideoDraw: () => dom.window.document.visibilityState === "hidden",
+      seed: () => 120
+    });
+    installClipboardMock(dom.window);
+    dom.window.chrome = chrome;
+    dom.window.eval(scriptUtils);
+    dom.window.eval(contentScript);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const video = dom.window.document.querySelector("video");
+    Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+    Object.defineProperty(video, "currentTime", { value: 12, configurable: true });
+    Object.defineProperty(video, "videoWidth", { value: 640, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 360, configurable: true });
+    video.getBoundingClientRect = () => ({ width: 640, height: 360, left: 0, top: 0 });
+
+    video.dispatchEvent(new dom.window.Event("timeupdate"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(chrome.__messages.some((message) => message?.type === "CAPTURE_VISIBLE_TAB"), false);
+    assert.equal(chrome.__messages.some((message) => message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS"), false);
+
+    Object.defineProperty(dom.window.document, "visibilityState", {
+      value: "visible",
+      configurable: true
+    });
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    assert.equal(chrome.__messages.some((message) => message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS"), true);
+    dom.window.document.querySelector('[data-tab="visual"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const visualPaneText = dom.window.document.querySelector('[data-pane="visual"]')?.textContent || "";
+    assert.match(visualPaneText, /事件触发的 PPT 分析/);
+    assert.match(visualPaneText, /CPU Instructions/);
+  } finally {
+    dom.window.close();
+  }
 }
 
 async function main() {
   await testPopup();
   await testOptions();
+  await testAutoAnalyzeDisabledByDefault();
   await testSidebar();
   await testSidebarDeepSeekFailureShowsError();
   await testCaptionTrackFallback();
@@ -953,6 +1201,8 @@ async function main() {
   await testDeepSeekModeWithoutApiKeyShowsPrompt();
   await testProgressiveOutlineRendersPartialPack();
   await testVisualAnalysisTabRendersSeparately();
+  await testVisualAnalysisSkipsYouTubeAds();
+  await testVisualAnalysisRescansAfterHiddenTab();
   console.log("ui smoke tests passed");
   process.exit(0);
 }

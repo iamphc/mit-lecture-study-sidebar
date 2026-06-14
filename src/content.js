@@ -4,13 +4,15 @@ const LIBRARY_INDEX_KEY = "lectureLibrary:index";
 const LIBRARY_SEARCH_TEXT_LIMIT = 60000;
 const STUDY_PACK_CACHE_VERSION = "outline-zh-v1";
 const VISIBLE_TABS = new Set(["outline", "visual", "library"]);
+const LOCAL_VISION_MODULE_PATH = "src/local-vision.js";
+const DEFAULT_VISUAL_SAMPLE_INTERVAL_SECONDS = 45;
 const DEFAULT_SETTINGS = {
+  autoAnalyze: false,
   sidebarWidth: 420,
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
-  ollamaBaseUrl: "http://127.0.0.1:11434",
-  ollamaVisionModel: "qwen2.5vl:3b",
+  visualScanIntervalSeconds: DEFAULT_VISUAL_SAMPLE_INTERVAL_SECONDS,
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
@@ -19,10 +21,11 @@ const PAGE_BRIDGE_REQUEST_TIMEOUT_MS = 8000;
 const PAGE_BRIDGE_LOAD_TIMEOUT_MS = 3000;
 const AUTO_STUDY_PACK_DELAY_MS = 400;
 const VISUAL_SAMPLE_START_DELAY_MS = 6000;
-const VISUAL_SAMPLE_INTERVAL_MS = 45000;
-const VISUAL_MIN_SECONDS_BETWEEN_FRAMES = 35;
+const VISUAL_AD_RETRY_DELAY_MS = 5000;
 const VISUAL_FRAME_MAX_WIDTH = 720;
 const VISUAL_FRAME_JPEG_QUALITY = 0.72;
+const VISUAL_PREVIEW_MAX_WIDTH = 360;
+const VISUAL_PREVIEW_JPEG_QUALITY = 0.64;
 const VISUAL_SIGNATURE_WIDTH = 12;
 const VISUAL_SIGNATURE_HEIGHT = 7;
 const VISUAL_SIGNATURE_DIFF_THRESHOLD = 0.12;
@@ -39,10 +42,10 @@ const UI_TEXT = {
   brand: "MIT 课程学习",
   openLectureTitle: "打开一个课程视频",
   readyState: "准备状态",
-  readyCopy: "打开 YouTube 上的 MIT 课程视频，然后自动生成中文大纲。",
+  readyCopy: "默认不会自动分析普通 YouTube 视频。需要课程分析时点“生成大纲”，或在设置里打开自动分析。",
   title: "课程大纲侧边栏",
   loadingCaptions: "正在读取课程内容...",
-  generateStudyPack: "重新生成",
+  generateStudyPack: "生成大纲",
   generating: "正在生成...",
   progressIdle: "等待开始",
   progressPreparing: "准备生成大纲",
@@ -56,7 +59,7 @@ const UI_TEXT = {
   progressDeepSeekPreparing: "正在准备 DeepSeek 分析",
   progressDeepSeekChunk: (current, total) => `DeepSeek 正在分析第 ${current}/${total} 段`,
   progressDeepSeekMerging: "正在整理分段大纲",
-  progressSaving: "正在保存大纲到资料库和 CSV",
+  progressSaving: "正在保存到本地目录",
   progressDone: "生成完成",
   exportMd: "导出 MD",
   copy: "复制",
@@ -76,15 +79,49 @@ const UI_TEXT = {
   outline: "大纲",
   visual: "画面",
   visualAnalysis: "画面分析",
-  visualStatusIdle: "播放课程时会用本地 Ollama 自动分析 PPT、板书和图示画面。",
+  visualStatusIdle: "播放课程时会自动筛选 PPT、板书、白板等关键画面，本地提取文字，再交给 DeepSeek 做中文分析。",
   visualStatusWaiting: "等待可分析的视频画面。",
   visualStatusCapturing: "正在截取当前画面...",
-  visualStatusAnalyzing: "正在分析画面...",
+  visualStatusDetecting: "正在本地判断画面类型...",
+  visualStatusExtracting: "正在本地提取画面原文...",
+  visualStatusAnalyzing: "正在用 DeepSeek 分析画面文本...",
   visualStatusReady: "画面分析已更新",
-  visualStatusSkipped: "当前画面变化不明显，已跳过。",
-  visualStatusModelFailed: "画面分析失败，请确认 Ollama 已启动并已拉取 qwen2.5vl:3b。",
-  visualVisibleText: "画面文字",
+  visualStatusSkipped: "当前画面不是新的课程关键画面，已跳过。",
+  visualStatusOcrEmpty: "已识别到课程关键画面，但本地 OCR 暂时没有提取到文字，稍后会重试。",
+  visualStatusModelFailed: "本地画面分析失败。",
+  visualStatusAdPlaying: "检测到广告，已暂停画面分析。",
+  visualStatusHiddenTab: "视频页在后台时无法可靠截取隐藏标签页画面，回到视频页后会立即补扫。",
+  visualDeepSeekFailed: "画面文本分析失败。",
+  visualScanTitle: "画面自动扫描",
+  visualScanDescription: "不是全量 API 解析；插件会按视频播放进度截取当前画面。首次约 6 秒后扫描，之后按设置里的间隔扫描；检测到广告会暂停并短重试，回到视频页会补扫。",
+  visualScanDisabledDescription: "自动分析关闭时不会截取画面；在设置里打开自动分析后，才会按你设置的间隔扫描课程画面。",
+  visualScanCurrent: "当前播放",
+  visualScanLast: "上次扫描",
+  visualScanNext: "下次扫描",
+  visualScanNever: "还没有扫描",
+  visualScanWaiting: "等待视频画面",
+  visualScanDisabled: "自动分析已关闭",
+  visualScanAdPlaying: "广告播放中",
+  visualScanSoon: "即将扫描",
+  visualScanInFlight: "正在扫描",
+  visualScanEvery: "定时扫描",
+  visualScanOff: "自动分析关闭",
+  visualFramePreview: "关键帧截图",
+  visualOcrRegionPreview: "OCR 识别区域",
+  visualFrameInfo: "关键帧信息",
+  visualSelectedRegion: "选中区域",
+  visualFrameScore: "分数",
+  visualCandidateScores: "候选区域",
+  visualVisibleText: "画面原文",
+  visualType: "画面类型",
+  visualTypeScores: "类型分数",
+  visualTypePpt: "PPT",
+  visualTypeBlackboard: "板书",
+  visualTypeWhiteboard: "白板",
+  visualTypeScreen: "屏幕",
+  visualTypeVisual: "画面",
   visualRelation: "和讲解的关系",
+  visualTags: "标签",
   lectureNotes: "",
   concepts: "",
   tags: "",
@@ -93,40 +130,45 @@ const UI_TEXT = {
   waitingForLecture: "等待课程视频...",
   statusNotLoaded: "未加载",
   statusAutoStarting: "已进入视频，正在自动生成中文大纲...",
-  statusStudyPackReady: "大纲已生成并保存到资料库",
+  statusAutoAnalyzeDisabled: "已进入视频，自动分析已关闭。需要时点“生成大纲”。",
+  statusStudyPackReady: "大纲已生成",
   statusDeepSeekKeyMissing: "缺少 DeepSeek API Key，请到设置里填写后重新生成。",
   statusMarkdownExported: "Markdown 已导出",
   statusStudyPackCopied: "大纲已复制",
   statusDiagnosticsCopied: "诊断信息已复制",
   statusRestoredStudyPack: "已恢复缓存大纲",
   statusRestoredTranscript: "已恢复课程内容，正在生成中文大纲",
+  statusRestoredTranscriptManual: "已恢复课程内容，自动分析已关闭。需要时点“生成大纲”。",
   statusRestoredTranscriptOutdatedPack: "旧版英文大纲已失效，正在重新生成中文大纲",
+  statusRestoredTranscriptOutdatedManual: "旧版大纲已失效，自动分析已关闭。需要时点“生成大纲”。",
   statusRecentHistoryCleared: "最近课程记录已清空",
   statusLibraryItemLoaded: "已从资料库加载这节课",
   statusLibraryItemMissing: "资料库里的完整记录丢失了，请重新生成一次大纲。",
   statusLibraryItemOutdated: "资料库里的大纲版本过旧，请重新生成一次中文大纲。",
-  statusCsvSaved: "CSV 已保存到项目目录",
-  statusCsvSaveSkipped: "CSV 本地服务未启动，仅保存到插件资料库",
+  statusLocalSaved: "已保存到本地目录",
+  statusLocalSaveSkipped: "未保存到本地目录，请到设置里选择本地保存目录",
   noStudyPackExport: "还没有可导出的大纲。",
   noStudyPackCopy: "还没有可复制的大纲。",
   captionLoadFailed: "课程内容读取失败",
   studyPackFailed: "大纲生成失败",
   deepSeekUnavailable: "DeepSeek 生成失败",
-  summaryDefault: "进入视频后会自动生成中文大纲。",
+  summaryDefaultAuto: "进入视频后会自动生成中文大纲。",
+  summaryDefaultManual: "自动分析默认关闭；需要课程内容时点“生成大纲”。",
   rawPreview: "原始预览",
   recentDebugLog: "最近调试日志",
   recentDebugLogCopy: "最近调试日志：",
   rawPreviewCopy: "原始预览",
   noRecentLectures: "还没有保存的课程记录。",
   librarySearchPlaceholder: "搜索已保存课程或大纲...",
-  libraryEmpty: "资料库还没有内容。生成大纲后会自动保存到这里。",
+  libraryEmpty: "资料库还没有内容。生成大纲后会自动缓存到这里，并保存到你选择的本地目录。",
   libraryNoResults: "没有匹配的资料库记录。",
   libraryOpenVideo: "打开视频",
   libraryLoad: "查看",
   libraryQuestions: () => "",
   emptyOutline: "正在等待自动生成的大纲。",
   emptyOutlineGenerating: "正在生成大纲，完成一段会先显示在这里。",
-  emptyVisual: "播放课程时会自动收集 PPT、板书和图示画面分析。",
+  emptyVisual: "播放课程时会自动收集 PPT、板书、白板等关键画面的中文分析。",
+  emptyVisualManual: "自动分析关闭时不会收集课程画面；在设置里打开自动分析后才会开始。",
   partialOutlineReady: (count, current, total) => `已生成 ${count} 个大纲小节，正在继续处理第 ${current}/${total} 段`,
   jump: "跳转",
   saved: "已保存",
@@ -160,7 +202,7 @@ const UI_TEXT = {
   valueNo: "否",
   markdownFallbackTitle: "MIT 课程大纲",
   markdownOutline: "大纲",
-  markdownVisual: "画面分析",
+  markdownVisual: "课程画面分析",
   markdownTags: "",
   markdownLectureNotes: "",
   markdownConcepts: "",
@@ -196,10 +238,86 @@ function uiError(prefixKey, error) {
   return `${uiText(prefixKey)}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
+function isAutoAnalyzeEnabled() {
+  return Boolean(state.settings.autoAnalyze);
+}
+
+function getVisualScanIntervalSeconds() {
+  return normalizeVisualScanInterval(state.settings.visualScanIntervalSeconds);
+}
+
+function getVisualScanIntervalMs() {
+  return getVisualScanIntervalSeconds() * 1000;
+}
+
+function normalizeVisualScanInterval(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) {
+    return DEFAULT_SETTINGS.visualScanIntervalSeconds;
+  }
+  return Math.max(5, Math.min(300, Math.round(seconds)));
+}
+
+function isYouTubeAdPlaying() {
+  const player =
+    document.getElementById("movie_player") ||
+    document.querySelector(".html5-video-player");
+  const playerClasses = player?.classList;
+  if (playerClasses?.contains("ad-showing") || playerClasses?.contains("ad-interrupting")) {
+    return true;
+  }
+
+  if (typeof player?.getAdState === "function") {
+    try {
+      if (player.getAdState()) {
+        return true;
+      }
+    } catch (_error) {
+      // Some YouTube player methods are not callable from the extension context.
+    }
+  }
+
+  const visibleAdSelectors = [
+    ".ytp-ad-player-overlay",
+    ".ytp-ad-text",
+    ".ytp-ad-preview-container",
+    ".ytp-ad-skip-button-container",
+    ".ytp-ad-simple-ad-badge",
+    ".ytp-ad-overlay-container",
+    ".video-ads .ytp-ad-overlay-slot"
+  ];
+
+  return visibleAdSelectors.some((selector) =>
+    Array.from(document.querySelectorAll(selector)).some(isVisibleYouTubeAdElement)
+  );
+}
+
+function isVisibleYouTubeAdElement(element) {
+  if (!(element instanceof Element)) {
+    return false;
+  }
+  if (element.closest("[hidden], [aria-hidden='true']")) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function getVideoLoadedStatus() {
+  return isAutoAnalyzeEnabled() ? uiText("statusAutoStarting") : uiText("statusAutoAnalyzeDisabled");
+}
+
 const state = {
   initialized: false,
   sidebarOpen: true,
   settings: { ...DEFAULT_SETTINGS },
+  localSaveDirectoryName: "",
   transcript: [],
   studyPack: null,
   studyPackFinal: false,
@@ -217,8 +335,15 @@ const state = {
   timerId: null,
   visualTimerId: null,
   visualAnalysisInFlight: false,
+  visualAdPlaying: false,
   visualLastSampleSeconds: -Infinity,
   visualLastSignature: "",
+  visualNextScanAtMs: 0,
+  visualLastScanAtMs: 0,
+  visualLastScanVideoSeconds: -1,
+  visualNeedsForegroundRescan: false,
+  visualEventBoundVideo: null,
+  visualEventAbortController: null,
   recentLectures: [],
   libraryIndex: [],
   librarySearchQuery: "",
@@ -239,6 +364,8 @@ const state = {
   }
 };
 
+let localVisionModulePromise = null;
+
 void boot();
 
 async function boot() {
@@ -253,13 +380,14 @@ async function boot() {
   observePageTransitions();
   bindGlobalEvents();
   startPlaybackSync();
-  startVisualSampling();
   void syncVideoContext();
 }
 
 async function loadSettings() {
   const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const localStored = await chrome.storage.local.get(["localSaveDirectoryName"]);
   state.settings = normalizeSettings(stored);
+  state.localSaveDirectoryName = String(localStored.localSaveDirectoryName || "");
   if (stored.outputLanguage !== "zh-CN") {
     await chrome.storage.sync.set({ outputLanguage: "zh-CN" });
   }
@@ -271,10 +399,25 @@ function normalizeSettings(stored = {}) {
   const settings = {
     ...DEFAULT_SETTINGS,
     ...stored,
+    autoAnalyze: Boolean(stored.autoAnalyze),
+    visualScanIntervalSeconds: normalizeVisualScanInterval(stored.visualScanIntervalSeconds),
     outputLanguage: "zh-CN"
   };
 
   return settings;
+}
+
+function normalizeSettingValue(key, value) {
+  if (key === "outputLanguage") {
+    return "zh-CN";
+  }
+  if (key === "autoAnalyze") {
+    return Boolean(value);
+  }
+  if (key === "visualScanIntervalSeconds") {
+    return normalizeVisualScanInterval(value);
+  }
+  return value;
 }
 
 function createSidebar() {
@@ -299,6 +442,9 @@ function createSidebar() {
 
 function bindGlobalEvents() {
   document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("focus", handleVisibilityChange);
+  window.addEventListener("pageshow", handleVisibilityChange);
   chrome.storage.onChanged.addListener(handleStorageChanges);
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type !== "DEEPSEEK_ANALYSIS_PROGRESS") {
@@ -393,6 +539,9 @@ function bindSidebarEvents(root, host) {
     if (target.dataset.tab) {
       state.activeTab = target.dataset.tab;
       render();
+      if (state.activeTab === "visual" && isAutoAnalyzeEnabled()) {
+        window.setTimeout(() => sampleVisualFrame({ force: true }), 0);
+      }
     }
   });
 
@@ -448,41 +597,248 @@ function handleFullscreenChange() {
   host.classList.remove("is-inside-fullscreen");
 }
 
+function handleVisibilityChange() {
+  if (!isAutoAnalyzeEnabled() || !state.videoId) {
+    return;
+  }
+  if (document.visibilityState === "visible") {
+    bindVideoProgressEvents();
+    void maybeSampleVisualFrameFromPlayback({ forceIfOverdue: true });
+  }
+  updateVisualScanMeter();
+}
+
 function handleStorageChanges(changes, areaName) {
+  if (areaName === "local" && Object.hasOwn(changes, "localSaveDirectoryName")) {
+    state.localSaveDirectoryName = String(changes.localSaveDirectoryName.newValue || "");
+    return;
+  }
+
   if (areaName !== "sync") {
     return;
   }
 
   let shouldRender = false;
+  let autoAnalyzeChanged = false;
+  let visualIntervalChanged = false;
   for (const [key, change] of Object.entries(changes)) {
     if (!(key in DEFAULT_SETTINGS)) {
       continue;
     }
-    state.settings[key] = key === "outputLanguage" ? "zh-CN" : change.newValue;
+    state.settings[key] = normalizeSettingValue(key, change.newValue);
+    if (key === "autoAnalyze") {
+      autoAnalyzeChanged = true;
+    }
+    if (key === "visualScanIntervalSeconds") {
+      visualIntervalChanged = true;
+    }
     shouldRender = true;
   }
 
+  if (autoAnalyzeChanged) {
+    handleAutoAnalyzeChange();
+  } else if (visualIntervalChanged && isAutoAnalyzeEnabled() && state.videoId) {
+    scheduleNextVisualScan(getVisualScanIntervalMs());
+  }
   if (shouldRender) {
     render();
   }
 }
 
+function handleAutoAnalyzeChange() {
+  if (!state.videoId) {
+    stopVisualSampling();
+    return;
+  }
+
+  if (state.settings.autoAnalyze) {
+    if (!state.studyPackFinal && !state.isBusy) {
+      setStatus(uiText("statusAutoStarting"));
+    }
+    startVisualSampling();
+    scheduleAutoStudyPack();
+    return;
+  }
+
+  state.autoRunVideoId = "";
+  state.autoRunPromise = null;
+  stopVisualSampling();
+  if (!state.isBusy) {
+    setStatus(uiText("statusAutoAnalyzeDisabled"));
+  }
+}
+
 function startPlaybackSync() {
   state.timerId = window.setInterval(() => {
+    bindVideoProgressEvents();
     const player = document.querySelector("video");
     if (player instanceof HTMLVideoElement) {
       state.currentVideoTime = player.currentTime || 0;
       highlightCurrentTranscript();
     }
+    updateVisualScanMeter();
   }, 1000);
 }
 
 function startVisualSampling() {
-  if (state.visualTimerId) {
-    window.clearInterval(state.visualTimerId);
+  if (!isAutoAnalyzeEnabled()) {
+    stopVisualSampling();
+    return;
   }
-  window.setTimeout(sampleVisualFrame, VISUAL_SAMPLE_START_DELAY_MS);
-  state.visualTimerId = window.setInterval(sampleVisualFrame, VISUAL_SAMPLE_INTERVAL_MS);
+  bindVideoProgressEvents();
+  if (state.visualTimerId) {
+    window.clearTimeout(state.visualTimerId);
+    state.visualTimerId = null;
+  }
+  scheduleNextVisualScan(VISUAL_SAMPLE_START_DELAY_MS);
+}
+
+function stopVisualSampling() {
+  if (state.visualTimerId) {
+    window.clearTimeout(state.visualTimerId);
+    state.visualTimerId = null;
+  }
+  unbindVideoProgressEvents();
+  state.visualNextScanAtMs = 0;
+  updateVisualScanMeter();
+}
+
+function bindVideoProgressEvents() {
+  if (!isAutoAnalyzeEnabled()) {
+    return;
+  }
+
+  const video = document.querySelector("video");
+  if (!(video instanceof HTMLVideoElement) || state.visualEventBoundVideo === video) {
+    return;
+  }
+
+  unbindVideoProgressEvents();
+  const controller = new AbortController();
+  const handler = () => {
+    void maybeSampleVisualFrameFromPlayback();
+  };
+  for (const eventName of ["timeupdate", "playing", "seeked", "loadeddata", "ratechange"]) {
+    video.addEventListener(eventName, handler, {
+      passive: true,
+      signal: controller.signal
+    });
+  }
+  state.visualEventBoundVideo = video;
+  state.visualEventAbortController = controller;
+}
+
+function unbindVideoProgressEvents() {
+  if (state.visualEventAbortController) {
+    state.visualEventAbortController.abort();
+  }
+  state.visualEventBoundVideo = null;
+  state.visualEventAbortController = null;
+}
+
+async function maybeSampleVisualFrameFromPlayback(options = {}) {
+  if (!isAutoAnalyzeEnabled() || !state.videoId || state.visualAnalysisInFlight) {
+    return;
+  }
+
+  const video = document.querySelector("video");
+  if (!(video instanceof HTMLVideoElement)) {
+    return;
+  }
+
+  const seconds = Math.floor(video.currentTime || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return;
+  }
+
+  state.currentVideoTime = video.currentTime || 0;
+  const firstScanAtSeconds = Math.ceil(VISUAL_SAMPLE_START_DELAY_MS / 1000);
+  const nextScanVideoSeconds =
+    state.visualLastScanVideoSeconds < 0
+      ? firstScanAtSeconds
+      : state.visualLastScanVideoSeconds + getVisualScanIntervalSeconds();
+  const needsForegroundRescan = state.visualNeedsForegroundRescan && document.visibilityState === "visible";
+
+  if (!needsForegroundRescan && !options.forceIfOverdue && seconds < nextScanVideoSeconds) {
+    return;
+  }
+  if (
+    !needsForegroundRescan &&
+    options.forceIfOverdue &&
+    seconds < nextScanVideoSeconds &&
+    Date.now() < state.visualNextScanAtMs
+  ) {
+    return;
+  }
+
+  await runVisualScanAndReschedule({
+    source: options.source || (needsForegroundRescan ? "foreground-rescan" : "video-progress"),
+    force: needsForegroundRescan || Boolean(options.force)
+  });
+}
+
+function scheduleNextVisualScan(delayMs = getVisualScanIntervalMs()) {
+  if (!isAutoAnalyzeEnabled()) {
+    stopVisualSampling();
+    return;
+  }
+  if (state.visualTimerId) {
+    window.clearTimeout(state.visualTimerId);
+  }
+
+  const safeDelayMs = Math.max(0, Number(delayMs) || 0);
+  const scheduledVideoId = state.videoId;
+  state.visualNextScanAtMs = Date.now() + safeDelayMs;
+  state.visualTimerId = window.setTimeout(() => {
+    state.visualTimerId = null;
+    state.visualNextScanAtMs = Date.now();
+    updateVisualScanMeter();
+    void runVisualScanAndReschedule({ source: "timer", scheduledVideoId });
+  }, safeDelayMs);
+  updateVisualScanMeter();
+}
+
+async function runVisualScanAndReschedule(options = {}) {
+  const scheduledVideoId = options.scheduledVideoId || state.videoId;
+  try {
+    const scanResult = await sampleVisualFrame({
+      force: Boolean(options.force),
+      source: options.source || ""
+    });
+    if (isAutoAnalyzeEnabled() && state.videoId && state.videoId === scheduledVideoId) {
+      scheduleNextVisualScan(scanResult?.retrySoon ? VISUAL_AD_RETRY_DELAY_MS : getVisualScanIntervalMs());
+    }
+  } catch (error) {
+    writeDebug("visual-scan-loop-failed", {
+      source: options.source || "",
+      message: error instanceof Error ? error.message : String(error)
+    });
+    if (isAutoAnalyzeEnabled() && state.videoId && state.videoId === scheduledVideoId) {
+      scheduleNextVisualScan(getVisualScanIntervalMs());
+    }
+  }
+}
+
+function updateVisualScanMeter() {
+  const root = document.getElementById(APP_ROOT_ID);
+  if (!(root instanceof HTMLElement)) {
+    return;
+  }
+
+  const viewModel = getVisualScanViewModel();
+  const currentNode = root.querySelector("[data-visual-scan-current]");
+  const lastNode = root.querySelector("[data-visual-scan-last]");
+  const nextNode = root.querySelector("[data-visual-scan-next]");
+
+  if (currentNode) {
+    currentNode.textContent = viewModel.current;
+  }
+  if (lastNode) {
+    lastNode.textContent = viewModel.last;
+  }
+  if (nextNode) {
+    nextNode.textContent = viewModel.next;
+  }
 }
 
 function highlightCurrentTranscript() {
@@ -522,16 +878,29 @@ async function syncVideoContext() {
   state.visualAnalysisError = "";
   state.activeTab = "outline";
   state.visualAnalysisInFlight = false;
+  state.visualAdPlaying = false;
+  unbindVideoProgressEvents();
   state.visualLastSampleSeconds = -Infinity;
   state.visualLastSignature = "";
+  state.visualNextScanAtMs = 0;
+  state.visualLastScanAtMs = 0;
+  state.visualLastScanVideoSeconds = -1;
+  state.visualNeedsForegroundRescan = false;
   state.usedFallback = false;
   state.lastCaptionTrackLanguage = "";
   state.autoRunVideoId = "";
   state.autoRunPromise = null;
-  setStatus(state.videoId ? uiText("statusAutoStarting") : uiText("statusNotLoaded"));
+  setStatus(state.videoId ? getVideoLoadedStatus() : uiText("statusNotLoaded"));
+  if (state.videoId && state.settings.autoAnalyze) {
+    startVisualSampling();
+  } else {
+    stopVisualSampling();
+  }
   await hydrateVideoCache();
   render();
-  scheduleAutoStudyPack();
+  if (state.settings.autoAnalyze) {
+    scheduleAutoStudyPack();
+  }
 }
 
 function extractVideoId() {
@@ -551,11 +920,14 @@ function extractVideoTitle() {
 }
 
 function scheduleAutoStudyPack() {
+  if (!isAutoAnalyzeEnabled()) {
+    return;
+  }
   window.setTimeout(startAutoStudyPack, AUTO_STUDY_PACK_DELAY_MS);
 }
 
 function startAutoStudyPack() {
-  if (!state.videoId || state.studyPackFinal || state.isBusy || state.autoRunPromise) {
+  if (!state.settings.autoAnalyze || !state.videoId || state.studyPackFinal || state.isBusy || state.autoRunPromise) {
     return;
   }
 
@@ -596,10 +968,26 @@ async function loadTranscript() {
   }
 }
 
-async function sampleVisualFrame() {
-  if (!state.videoId || state.visualAnalysisInFlight) {
+async function sampleVisualFrame(options = {}) {
+  if (!isAutoAnalyzeEnabled() || !state.videoId || state.visualAnalysisInFlight) {
     return;
   }
+
+  if (isYouTubeAdPlaying()) {
+    const adStatus = uiText("visualStatusAdPlaying");
+    const shouldRender = !state.visualAdPlaying || state.visualAnalysisStatus !== adStatus || state.visualAnalysisError;
+    state.visualAdPlaying = true;
+    state.visualAnalysisStatus = adStatus;
+    state.visualAnalysisError = "";
+    if (shouldRender) {
+      render();
+    } else {
+      updateVisualScanMeter();
+    }
+    return { retrySoon: true };
+  }
+
+  state.visualAdPlaying = false;
 
   const video = document.querySelector("video");
   if (!(video instanceof HTMLVideoElement) || video.readyState < 2) {
@@ -611,11 +999,19 @@ async function sampleVisualFrame() {
   if (!Number.isFinite(seconds) || seconds <= 0) {
     return;
   }
-  if (seconds - state.visualLastSampleSeconds < VISUAL_MIN_SECONDS_BETWEEN_FRAMES) {
+
+  if (Number.isFinite(state.visualLastSampleSeconds) && seconds + 2 < state.visualLastSampleSeconds) {
+    state.visualLastSampleSeconds = -Infinity;
+    state.visualLastSignature = "";
+  }
+
+  if (!options.force && seconds - state.visualLastSampleSeconds < getVisualScanIntervalSeconds()) {
     return;
   }
 
   const videoIdAtStart = state.videoId;
+  state.visualLastScanAtMs = Date.now();
+  state.visualLastScanVideoSeconds = seconds;
   state.visualAnalysisInFlight = true;
   state.visualAnalysisStatus = uiText("visualStatusCapturing");
   state.visualAnalysisError = "";
@@ -626,26 +1022,61 @@ async function sampleVisualFrame() {
     if (!frame || state.videoId !== videoIdAtStart) {
       return;
     }
+    state.visualNeedsForegroundRescan = false;
 
     if (state.visualLastSignature && signatureDistance(state.visualLastSignature, frame.signature) < VISUAL_SIGNATURE_DIFF_THRESHOLD) {
       state.visualAnalysisStatus = uiText("visualStatusSkipped");
+      state.visualLastSampleSeconds = seconds;
       return;
     }
 
-    state.visualAnalysisStatus = uiText("visualStatusAnalyzing");
-    render();
-    const analysis = await analyzeVisualFrame(frame);
-    if (state.videoId !== videoIdAtStart || !analysis?.shouldKeep) {
+    if (!state.settings.deepseekApiKey) {
+      state.visualAnalysisStatus = uiText("statusDeepSeekKeyMissing");
       state.visualLastSignature = frame.signature;
       state.visualLastSampleSeconds = seconds;
       return;
     }
 
+    state.visualAnalysisStatus = uiText("visualStatusDetecting");
+    render();
+    const keyFrame = await detectVisualKeyFrame(frame);
+    if (state.videoId !== videoIdAtStart || !keyFrame.shouldAnalyze) {
+      state.visualLastSignature = frame.signature;
+      state.visualLastSampleSeconds = seconds;
+      state.visualAnalysisStatus = uiText("visualStatusSkipped");
+      return;
+    }
+
+    state.visualAnalysisStatus = uiText("visualStatusExtracting");
+    render();
+    const rawExtraction = await extractVisualFrameText(frame, keyFrame);
+    if (state.videoId !== videoIdAtStart || !rawExtraction?.shouldKeep) {
+      state.visualAnalysisStatus = uiText("visualStatusOcrEmpty");
+      return;
+    }
+
+    state.visualAnalysisStatus = uiText("visualStatusAnalyzing");
+    render();
+    const analysis = await analyzeVisualText(rawExtraction);
+    if (state.videoId !== videoIdAtStart || !analysis?.shouldKeep) {
+      return;
+    }
+    const frameDebug = await buildVisualFrameDebug(frame, keyFrame);
     state.visualLastSignature = frame.signature;
     state.visualLastSampleSeconds = seconds;
-    state.visualAnalysis = mergeVisualAnalysisItems(state.visualAnalysis, [analysis]).slice(0, VISUAL_MAX_ANALYSIS_ITEMS);
+    const visualItem = {
+      ...analysis,
+      framePreview: frameDebug.framePreview,
+      ocrRegionPreview: frameDebug.ocrRegionPreview,
+      keyFrame: {
+        ...(analysis.keyFrame || keyFrame),
+        ...frameDebug.keyFrame
+      }
+    };
+    state.visualAnalysis = mergeVisualAnalysisItems(state.visualAnalysis, [visualItem]).slice(0, VISUAL_MAX_ANALYSIS_ITEMS);
     state.visualAnalysisStatus = uiText("visualStatusReady");
-    await persistVideoCache({ skipCsv: true });
+    await persistVideoCache({ skipLocal: true });
+    void saveLectureLocal(new Date().toISOString(), { quiet: true });
   } catch (error) {
     state.visualAnalysisError = error instanceof Error ? error.message : String(error);
     state.visualAnalysisStatus = uiText("visualStatusModelFailed");
@@ -662,6 +1093,14 @@ async function captureCurrentVideoFrame(video, seconds) {
   const directFrame = captureVideoElementFrame(video, seconds);
   if (directFrame) {
     return directFrame;
+  }
+
+  if (document.visibilityState === "hidden") {
+    state.visualNeedsForegroundRescan = true;
+    state.visualNextScanAtMs = 0;
+    state.visualAnalysisStatus = uiText("visualStatusHiddenTab");
+    updateVisualScanMeter();
+    return null;
   }
 
   const response = await captureVisibleTabWithoutSidebar();
@@ -683,7 +1122,7 @@ async function captureCurrentVideoFrame(video, seconds) {
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
     throw new Error("当前浏览器无法处理视频画面。");
   }
@@ -692,6 +1131,7 @@ async function captureCurrentVideoFrame(video, seconds) {
   return {
     seconds,
     timestamp: formatTime(seconds * 1000),
+    canvas,
     imageDataUrl: canvas.toDataURL("image/jpeg", VISUAL_FRAME_JPEG_QUALITY),
     signature: buildFrameSignature(context, targetWidth, targetHeight)
   };
@@ -705,7 +1145,7 @@ function captureVideoElementFrame(video, seconds) {
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
     return null;
   }
@@ -715,6 +1155,7 @@ function captureVideoElementFrame(video, seconds) {
     return {
       seconds,
       timestamp: formatTime(seconds * 1000),
+      canvas,
       imageDataUrl: canvas.toDataURL("image/jpeg", VISUAL_FRAME_JPEG_QUALITY),
       signature: buildFrameSignature(context, targetWidth, targetHeight)
     };
@@ -765,12 +1206,13 @@ function loadImage(src) {
 
 function buildFrameSignature(context, width, height) {
   const signature = [];
+  const pixels = context.getImageData(0, 0, width, height).data;
   for (let y = 0; y < VISUAL_SIGNATURE_HEIGHT; y += 1) {
     for (let x = 0; x < VISUAL_SIGNATURE_WIDTH; x += 1) {
       const px = Math.min(width - 1, Math.floor(((x + 0.5) / VISUAL_SIGNATURE_WIDTH) * width));
       const py = Math.min(height - 1, Math.floor(((y + 0.5) / VISUAL_SIGNATURE_HEIGHT) * height));
-      const data = context.getImageData(px, py, 1, 1).data;
-      signature.push(Math.round((data[0] + data[1] + data[2]) / 3 / 16).toString(16));
+      const offset = (py * width + px) * 4;
+      signature.push(Math.round((pixels[offset] + pixels[offset + 1] + pixels[offset + 2]) / 3 / 16).toString(16));
     }
   }
   return signature.join("");
@@ -789,20 +1231,148 @@ function signatureDistance(left, right) {
 }
 
 async function analyzeVisualFrame(frame) {
+  const keyFrame = await detectVisualKeyFrame(frame, { force: true });
+  const rawExtraction = await extractVisualFrameText(frame, keyFrame, { force: true });
+  return analyzeVisualText(rawExtraction);
+}
+
+async function detectVisualKeyFrame(frame, options = {}) {
+  const { detectPptKeyFrame } = await loadLocalVisionModule();
+  return detectPptKeyFrame(frame, options);
+}
+
+async function extractVisualFrameText(frame, keyFrame, options = {}) {
+  const { extractRawPptInfo } = await loadLocalVisionModule();
+  return extractRawPptInfo({
+    videoId: state.videoId,
+    videoTitle: state.videoTitle,
+    frame,
+    transcriptContext: getTranscriptContext(frame.seconds)
+  }, {
+    ...options,
+    keyFrame,
+    onProgress: handleLocalVisionProgress
+  });
+}
+
+async function analyzeVisualText(rawExtraction) {
   const response = await chrome.runtime.sendMessage({
-    type: "RUN_OLLAMA_VISUAL_ANALYSIS",
+    type: "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS",
     payload: {
       videoId: state.videoId,
       videoTitle: state.videoTitle,
-      frame,
-      transcriptContext: getTranscriptContext(frame.seconds)
+      extraction: serializeVisualExtraction(rawExtraction),
+      transcriptContext: getTranscriptContext(rawExtraction.seconds)
     }
   });
 
   if (!response?.ok) {
-    throw new Error(response?.error || "DeepSeek 画面分析失败。");
+    throw new Error(response?.error || uiText("visualDeepSeekFailed"));
   }
-  return normalizeVisualAnalysisItem(response.result || frame);
+
+  return normalizeVisualAnalysisItem({
+    ...rawExtraction,
+    ...(response.result || {}),
+    shouldKeep: true
+  });
+}
+
+function serializeVisualExtraction(extraction) {
+  return {
+    source: extraction?.source || "",
+    extractionStage: extraction?.extractionStage || "",
+    timestamp: extraction?.timestamp || "",
+    seconds: Number(extraction?.seconds || 0),
+    rawVisibleText: String(extraction?.rawVisibleText || ""),
+    visibleText: Array.isArray(extraction?.visibleText) ? extraction.visibleText : [],
+    ocrConfidence: extraction?.ocrConfidence ?? null,
+    ocrModel: extraction?.ocrModel || "",
+    ocrTask: extraction?.ocrTask || "",
+    keyFrame: extraction?.keyFrame || null
+  };
+}
+
+async function buildVisualFrameDebug(frame, keyFrame) {
+  const framePreview = await canvasToPreviewDataUrl(frame?.canvas);
+  const ocrDebug = await buildVisualOcrDebug(frame, keyFrame);
+  return {
+    framePreview,
+    ocrRegionPreview: ocrDebug?.source?.dataUrl || "",
+    keyFrame: ocrDebug?.keyFrame || keyFrame || null
+  };
+}
+
+async function buildVisualOcrDebug(frame, keyFrame) {
+  try {
+    const { debugBuildOcrCandidateImages } = await loadLocalVisionModule();
+    return debugBuildOcrCandidateImages(frame, {
+      keyFrame,
+      maxWidth: VISUAL_PREVIEW_MAX_WIDTH,
+      quality: VISUAL_PREVIEW_JPEG_QUALITY,
+      includeCandidates: false
+    });
+  } catch (error) {
+    writeDebug("visual-debug-frame-failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+async function canvasToPreviewDataUrl(canvas) {
+  if (!canvas || !Number.isFinite(Number(canvas.width)) || !Number.isFinite(Number(canvas.height))) {
+    return "";
+  }
+
+  const sourceWidth = Math.max(1, Number(canvas.width));
+  const sourceHeight = Math.max(1, Number(canvas.height));
+  const targetWidth = Math.min(VISUAL_PREVIEW_MAX_WIDTH, sourceWidth);
+  const targetHeight = Math.max(1, Math.round((sourceHeight / sourceWidth) * targetWidth));
+  const output = document.createElement("canvas");
+  output.width = targetWidth;
+  output.height = targetHeight;
+  const context = output.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return "";
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, targetWidth, targetHeight);
+  context.drawImage(canvas, 0, 0, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+  return output.toDataURL("image/jpeg", VISUAL_PREVIEW_JPEG_QUALITY);
+}
+
+async function loadLocalVisionModule() {
+  if (!localVisionModulePromise) {
+    if (typeof chrome?.runtime?.getURL !== "function") {
+      throw new Error("当前环境无法加载插件内本地视觉模型。");
+    }
+    localVisionModulePromise = import(chrome.runtime.getURL(LOCAL_VISION_MODULE_PATH));
+  }
+  return localVisionModulePromise;
+}
+
+function handleLocalVisionProgress(progress) {
+  if (!progress || typeof progress !== "object") {
+    return;
+  }
+
+  if (progress.status === "progress_total") {
+    const percent = Math.max(0, Math.min(100, Math.round(Number(progress.progress) || 0)));
+    state.visualAnalysisStatus = `首次使用正在下载本地视觉模型 ${percent}%`;
+    render();
+    return;
+  }
+
+  if (progress.status === "download" || progress.status === "initiate") {
+    state.visualAnalysisStatus = "首次使用正在下载本地视觉模型...";
+    render();
+    return;
+  }
+
+  if (progress.status === "ready") {
+    state.visualAnalysisStatus = uiText("visualStatusExtracting");
+    render();
+  }
 }
 
 function getTranscriptContext(seconds) {
@@ -816,11 +1386,12 @@ function getTranscriptContext(seconds) {
 function normalizeVisualAnalysisItem(item) {
   const seconds = Number(item?.seconds);
   const startMs = Number.isFinite(seconds) ? seconds * 1000 : parseTimestampToMs(item?.timestamp);
+  const visualType = inferVisualType(item);
   return {
     timestamp: item?.timestamp || formatTime(startMs),
     seconds: Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : Math.floor(startMs / 1000),
     title: String(item?.title || "").trim(),
-    visualType: String(item?.visualType || "visual").trim(),
+    visualType,
     shouldKeep: item?.shouldKeep !== false,
     bullets: Array.isArray(item?.bullets)
       ? item.bullets.map((bullet) => String(bullet || "").trim()).filter(Boolean)
@@ -828,24 +1399,85 @@ function normalizeVisualAnalysisItem(item) {
     visibleText: Array.isArray(item?.visibleText)
       ? item.visibleText.map((text) => String(text || "").trim()).filter(Boolean)
       : [],
-    relationToTranscript: String(item?.relationToTranscript || "").trim()
+    rawVisibleText: String(item?.rawVisibleText || "").trim(),
+    relationToTranscript: String(item?.relationToTranscript || "").trim(),
+    tags: Array.isArray(item?.tags)
+      ? item.tags.map((tag) => String(tag || "").trim()).filter(Boolean).slice(0, 8)
+      : [],
+    keyFrame: item?.keyFrame || null,
+    framePreview: sanitizeDataImageUrl(item?.framePreview),
+    ocrRegionPreview: sanitizeDataImageUrl(item?.ocrRegionPreview),
+    source: String(item?.source || "").trim()
   };
 }
 
+function inferVisualType(item) {
+  const explicitType = normalizeVisualType(item?.visualType || item?.keyFrame?.visualType);
+  const keyFrame = item?.keyFrame || {};
+  const detectorSource = String(keyFrame.source || "");
+  const stats = keyFrame.stats || {};
+  if (detectorSource !== "local-keyframe-detector-v2" && explicitType === "ppt" && looksLikeBlackboardStats(stats)) {
+    return "blackboard";
+  }
+  return explicitType;
+}
+
+function looksLikeBlackboardStats(stats) {
+  const darkRatio = Number(stats.darkRatio);
+  const brightRatio = Number(stats.brightRatio);
+  const meanLuma = Number(stats.meanLuma);
+  if (!Number.isFinite(darkRatio) || !Number.isFinite(brightRatio) || !Number.isFinite(meanLuma)) {
+    return false;
+  }
+  return darkRatio >= 0.35 && brightRatio <= 0.22 && meanLuma <= 0.58;
+}
+
+function normalizeVisualType(value) {
+  const normalized = String(value || "visual").trim().toLowerCase();
+  if (normalized === "slide" || normalized === "slides") {
+    return "ppt";
+  }
+  if (normalized === "chalkboard") {
+    return "blackboard";
+  }
+  if (["ppt", "blackboard", "whiteboard", "screen", "visual"].includes(normalized)) {
+    return normalized;
+  }
+  return "visual";
+}
+
+function getVisualTypeLabel(value) {
+  const visualType = normalizeVisualType(value);
+  if (visualType === "ppt") {
+    return uiText("visualTypePpt");
+  }
+  if (visualType === "blackboard") {
+    return uiText("visualTypeBlackboard");
+  }
+  if (visualType === "whiteboard") {
+    return uiText("visualTypeWhiteboard");
+  }
+  if (visualType === "screen") {
+    return uiText("visualTypeScreen");
+  }
+  return uiText("visualTypeVisual");
+}
+
 function mergeVisualAnalysisItems(existingItems, nextItems) {
-  const seen = new Set();
-  return [...(existingItems || []), ...(nextItems || [])]
+  const merged = new Map();
+  for (const item of [...(existingItems || []), ...(nextItems || [])]
     .map(normalizeVisualAnalysisItem)
-    .filter((item) => item.shouldKeep && (item.title || item.bullets.length || item.visibleText.length))
-    .filter((item) => {
-      const bucket = Math.round((item.seconds || 0) / 15);
-      const key = `${bucket}|${item.title}`.toLowerCase();
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    })
+    .filter((item) => item.shouldKeep && (item.title || item.bullets.length || item.visibleText.length))) {
+    const bucket = Math.round((item.seconds || 0) / 15);
+    const rawKey = item.rawVisibleText || item.visibleText.join(" ");
+    const key = `${bucket}|${item.title || rawKey}`.toLowerCase();
+    merged.set(key, {
+      ...(merged.get(key) || {}),
+      ...item
+    });
+  }
+
+  return [...merged.values()]
     .sort((left, right) => Number(left.seconds || 0) - Number(right.seconds || 0));
 }
 
@@ -1975,13 +2607,15 @@ async function hydrateVideoCache() {
   if (state.visualAnalysis.length) {
     state.visualAnalysisStatus = uiText("visualStatusReady");
   }
-  setStatus(
-    state.studyPack
-      ? uiText("statusRestoredStudyPack")
-      : cached.studyPack
-        ? uiText("statusRestoredTranscriptOutdatedPack")
-        : uiText("statusRestoredTranscript")
-  );
+  if (state.studyPack) {
+    setStatus(uiText("statusRestoredStudyPack"));
+    return;
+  }
+  if (cached.studyPack) {
+    setStatus(isAutoAnalyzeEnabled() ? uiText("statusRestoredTranscriptOutdatedPack") : uiText("statusRestoredTranscriptOutdatedManual"));
+    return;
+  }
+  setStatus(isAutoAnalyzeEnabled() ? uiText("statusRestoredTranscript") : uiText("statusRestoredTranscriptManual"));
 }
 
 async function persistVideoCache(options = {}) {
@@ -2007,8 +2641,8 @@ async function persistVideoCache(options = {}) {
   });
   await saveLibraryIndexEntry(updatedAt);
   await pushRecentLecture(updatedAt);
-  if (!options.skipCsv) {
-    await saveLectureCsv(updatedAt);
+  if (!options.skipLocal) {
+    await saveLectureLocal(updatedAt);
   }
 }
 
@@ -2086,33 +2720,49 @@ function buildLibraryIndexEntry(updatedAt) {
   };
 }
 
-async function saveLectureCsv(savedAt) {
+async function saveLectureLocal(savedAt, options = {}) {
   if (!state.studyPackFinal || !state.studyPack) {
+    return;
+  }
+
+  if (!state.localSaveDirectoryName) {
+    writeDebug("lecture-local-save-disabled", {
+      reason: "local-save-directory-missing"
+    });
+    if (!options.quiet) {
+      setStatus(uiText("statusLocalSaveSkipped"), true);
+    }
     return;
   }
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: "SAVE_LECTURE_CSV",
+      type: "SAVE_LECTURE_LOCAL",
       payload: buildLectureCsvRecord(savedAt)
     });
 
     if (response?.ok) {
-      writeDebug("lecture-csv-saved", response.result || {});
-      setStatus(uiText("statusCsvSaved"));
+      writeDebug("lecture-local-saved", response.result || {});
+      if (!options.quiet) {
+        setStatus(uiText("statusLocalSaved"));
+      }
       return;
     }
 
-    writeDebug("lecture-csv-save-skipped", {
-      error: response?.error || "csv-service-unavailable"
+    writeDebug("lecture-local-save-skipped", {
+      error: response?.error || "local-save-unavailable"
     });
+    if (!options.quiet) {
+      setStatus(response?.error || uiText("statusLocalSaveSkipped"), true);
+    }
   } catch (error) {
-    writeDebug("lecture-csv-save-skipped", {
+    writeDebug("lecture-local-save-skipped", {
       error: error instanceof Error ? error.message : String(error)
     });
+    if (!options.quiet) {
+      setStatus(error instanceof Error ? error.message : String(error), true);
+    }
   }
-
-  setStatus(uiText("statusCsvSaveSkipped"), true);
 }
 
 function buildLectureCsvRecord(savedAt) {
@@ -2201,8 +2851,10 @@ function buildLibrarySearchText(pack, transcript, visualAnalysis = []) {
     ...(visualAnalysis || []).flatMap((item) => [
       item.title,
       item.relationToTranscript,
+      item.rawVisibleText,
       ...(item.bullets || []),
-      ...(item.visibleText || [])
+      ...(item.visibleText || []),
+      ...(item.tags || [])
     ])
   ];
 
@@ -2267,11 +2919,15 @@ function buildMarkdown(pack) {
     lines.push(`## ${uiText("markdownVisual")}`, "");
     for (const item of state.visualAnalysis) {
       lines.push(`### ${item.timestamp} ${item.title || uiText("visualAnalysis")}`);
+      lines.push(`- ${uiText("visualType")}：${getVisualTypeLabel(item.visualType)}`);
       for (const bullet of item.bullets || []) {
         lines.push(`- ${bullet}`);
       }
+      if (item.tags?.length) {
+        lines.push(`- ${uiText("visualTags")}：${item.tags.join("，")}`);
+      }
       if (item.visibleText?.length) {
-        lines.push(`- ${uiText("visualVisibleText")}：${item.visibleText.join("；")}`);
+        lines.push(`- ${getVisualTypeLabel(item.visualType)}原文：${item.visibleText.join("；")}`);
       }
       if (item.relationToTranscript) {
         lines.push(`- ${uiText("visualRelation")}：${item.relationToTranscript}`);
@@ -2391,7 +3047,7 @@ function getPanelMarkup() {
 
   const closeLabel = state.sidebarOpen ? "×" : "≡";
   const isGeneratingStudyPack = state.isBusy && state.busyAction === "generate";
-  const statusLabel = state.studyPackFinal ? uiText("statusStudyPackReady") : state.statusText;
+  const statusLabel = state.statusText || (state.studyPackFinal ? uiText("statusStudyPackReady") : "");
 
   return `
     <button class="mit-study-reopen" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${escapeHtml(uiText("reopenOutline"))}</button>
@@ -2448,9 +3104,9 @@ function getSummaryText() {
     return state.statusText;
   }
   if (state.studyPackFinal) {
-    return uiText("statusStudyPackReady");
+    return state.statusText || uiText("statusStudyPackReady");
   }
-  return uiText("summaryDefault");
+  return isAutoAnalyzeEnabled() ? uiText("summaryDefaultAuto") : uiText("summaryDefaultManual");
 }
 
 function renderProgressBar() {
@@ -2623,7 +3279,7 @@ function renderLibraryResults(items, hasQuery) {
 
 function renderOutline() {
   if (!state.studyPack?.outline?.length) {
-    return renderEmpty(state.isBusy ? uiText("emptyOutlineGenerating") : uiText("emptyOutline"));
+    return renderEmpty(state.isBusy ? uiText("emptyOutlineGenerating") : isAutoAnalyzeEnabled() ? uiText("emptyOutline") : uiText("summaryDefaultManual"));
   }
 
   return state.studyPack.outline
@@ -2643,6 +3299,7 @@ function renderOutline() {
 }
 
 function renderVisualAnalysis() {
+  const scanPanel = renderVisualScanPanel();
   const statusClass = state.visualAnalysisError ? " mit-study-warning" : "";
   const status = `
     <section class="mit-study-visual-status${statusClass}">
@@ -2652,28 +3309,196 @@ function renderVisualAnalysis() {
   `;
 
   if (!state.visualAnalysis.length) {
-    return `${status}${renderEmpty(uiText("emptyVisual"))}`;
+    return `${scanPanel}${status}${renderEmpty(isAutoAnalyzeEnabled() ? uiText("emptyVisual") : uiText("emptyVisualManual"))}`;
   }
 
   return (
+    scanPanel +
     status +
     state.visualAnalysis
       .map(
         (item) => `
           <article class="mit-study-item mit-study-visual-item">
             <div class="mit-study-item-topline">
-              <span class="mit-study-time">${escapeHtml(item.timestamp)}</span>
+              <div class="mit-study-visual-meta">
+                <span class="mit-study-time">${escapeHtml(item.timestamp)}</span>
+                <span class="mit-study-visual-type">${escapeHtml(getVisualTypeLabel(item.visualType))}</span>
+              </div>
               <button class="mit-study-link" data-action="jump" data-seconds="${item.seconds || 0}">${escapeHtml(uiText("jump"))}</button>
             </div>
             <h3>${escapeHtml(item.title || uiText("visualAnalysis"))}</h3>
+            ${renderVisualFramePreview(item)}
             ${item.bullets?.length ? `<ul>${item.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
-            ${item.visibleText?.length ? `<p><strong>${escapeHtml(uiText("visualVisibleText"))}：</strong>${escapeHtml(item.visibleText.join("；"))}</p>` : ""}
+            ${item.tags?.length ? `<p><strong>${escapeHtml(uiText("visualTags"))}：</strong>${escapeHtml(item.tags.join("，"))}</p>` : ""}
             ${item.relationToTranscript ? `<p><strong>${escapeHtml(uiText("visualRelation"))}：</strong>${escapeHtml(item.relationToTranscript)}</p>` : ""}
+            ${renderVisualFrameInfo(item)}
+            ${renderVisualRawText(item)}
           </article>
         `
       )
       .join("")
-  );
+	  );
+}
+
+function renderVisualScanPanel() {
+  const viewModel = getVisualScanViewModel();
+  const isEnabled = isAutoAnalyzeEnabled();
+  return `
+    <section class="mit-study-visual-scan-card">
+      <div class="mit-study-visual-scan-topline">
+        <strong>${escapeHtml(uiText("visualScanTitle"))}</strong>
+        <span>${escapeHtml(isEnabled ? `${uiText("visualScanEvery")} ${getVisualScanIntervalSeconds()} 秒` : uiText("visualScanOff"))}</span>
+      </div>
+      <p>${escapeHtml(isEnabled ? uiText("visualScanDescription") : uiText("visualScanDisabledDescription"))}</p>
+      <div class="mit-study-visual-scan-grid">
+        <div>
+          <span>${escapeHtml(uiText("visualScanCurrent"))}</span>
+          <strong data-visual-scan-current>${escapeHtml(viewModel.current)}</strong>
+        </div>
+        <div>
+          <span>${escapeHtml(uiText("visualScanLast"))}</span>
+          <strong data-visual-scan-last>${escapeHtml(viewModel.last)}</strong>
+        </div>
+        <div>
+          <span>${escapeHtml(uiText("visualScanNext"))}</span>
+          <strong data-visual-scan-next>${escapeHtml(viewModel.next)}</strong>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function getVisualScanViewModel() {
+  return {
+    current: formatVideoSeconds(state.currentVideoTime),
+    last: formatVisualLastScan(),
+    next: formatVisualNextScan()
+  };
+}
+
+function formatVisualLastScan() {
+  if (state.visualLastScanVideoSeconds < 0) {
+    return uiText("visualScanNever");
+  }
+  return formatVideoSeconds(state.visualLastScanVideoSeconds);
+}
+
+function formatVisualNextScan() {
+  if (!isAutoAnalyzeEnabled()) {
+    return uiText("visualScanDisabled");
+  }
+  if (state.visualAdPlaying) {
+    return uiText("visualScanAdPlaying");
+  }
+  if (state.visualAnalysisInFlight) {
+    return uiText("visualScanInFlight");
+  }
+  if (!state.videoId || !state.visualNextScanAtMs) {
+    return uiText("visualScanWaiting");
+  }
+
+  const remainingMs = state.visualNextScanAtMs - Date.now();
+  if (remainingMs <= 1000) {
+    return uiText("visualScanSoon");
+  }
+  return `约 ${Math.ceil(remainingMs / 1000)} 秒后`;
+}
+
+function formatVideoSeconds(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return "00:00";
+  }
+  return formatTime(value * 1000);
+}
+
+function renderVisualFramePreview(item) {
+  const images = [
+    item.framePreview
+      ? {
+          label: uiText("visualFramePreview"),
+          src: item.framePreview
+        }
+      : null,
+    item.ocrRegionPreview
+      ? {
+          label: uiText("visualOcrRegionPreview"),
+          src: item.ocrRegionPreview
+        }
+      : null
+  ].filter(Boolean);
+
+  if (!images.length) {
+    return "";
+  }
+
+  return `
+    <div class="mit-study-visual-previews">
+      ${images
+        .map(
+          (image) => `
+            <figure>
+              <img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.label)}" loading="lazy" />
+              <figcaption>${escapeHtml(image.label)}</figcaption>
+            </figure>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderVisualFrameInfo(item) {
+  const keyFrame = item.keyFrame || {};
+  const regionName = keyFrame.region?.name || "";
+  const score = Number.isFinite(Number(keyFrame.score)) ? Number(keyFrame.score).toFixed(3) : "";
+  const visualTypeLabel = getVisualTypeLabel(item.visualType || keyFrame.visualType);
+  const typeScores = Array.isArray(keyFrame.typeScores)
+    ? keyFrame.typeScores
+        .map((entry) => {
+          const entryScore = Number.isFinite(Number(entry?.score)) ? Number(entry.score).toFixed(3) : "";
+          return [entry?.label || getVisualTypeLabel(entry?.visualType), entryScore].filter(Boolean).join(" ");
+        })
+        .filter(Boolean)
+    : [];
+  const candidateScores = Array.isArray(keyFrame.candidateScores)
+    ? keyFrame.candidateScores
+        .map((candidate) => {
+          const candidateScore = Number.isFinite(Number(candidate?.score)) ? Number(candidate.score).toFixed(3) : "";
+          const candidateType = candidate?.visualType ? getVisualTypeLabel(candidate.visualType) : "";
+          return [candidate?.name, candidateScore, candidateType].filter(Boolean).join(" ");
+        })
+        .filter(Boolean)
+    : [];
+
+  if (!regionName && !score && !typeScores.length && !candidateScores.length) {
+    return "";
+  }
+
+  return `
+    <details class="mit-study-visual-frame-info">
+      <summary>${escapeHtml(uiText("visualFrameInfo"))}</summary>
+      ${visualTypeLabel ? `<p><strong>${escapeHtml(uiText("visualType"))}：</strong>${escapeHtml(visualTypeLabel)}</p>` : ""}
+      ${regionName ? `<p><strong>${escapeHtml(uiText("visualSelectedRegion"))}：</strong>${escapeHtml(regionName)}</p>` : ""}
+      ${score ? `<p><strong>${escapeHtml(uiText("visualFrameScore"))}：</strong>${escapeHtml(score)}</p>` : ""}
+      ${typeScores.length ? `<p><strong>${escapeHtml(uiText("visualTypeScores"))}：</strong>${escapeHtml(typeScores.join("，"))}</p>` : ""}
+      ${candidateScores.length ? `<p><strong>${escapeHtml(uiText("visualCandidateScores"))}：</strong>${escapeHtml(candidateScores.join("，"))}</p>` : ""}
+    </details>
+  `;
+}
+
+function renderVisualRawText(item) {
+  const rawText = item.rawVisibleText || item.visibleText?.join("\n") || "";
+  if (!rawText) {
+    return "";
+  }
+  const rawTextLabel = `${getVisualTypeLabel(item.visualType)}原文`;
+  return `
+    <details class="mit-study-raw-visual">
+      <summary>${escapeHtml(rawTextLabel)}</summary>
+      <pre>${escapeHtml(rawText)}</pre>
+    </details>
+  `;
 }
 
 function renderEmpty(message) {
@@ -2727,4 +3552,9 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function sanitizeDataImageUrl(value) {
+  const text = String(value || "").trim();
+  return /^data:image\/(?:png|jpeg|jpg|webp);base64,[a-z0-9+/=]+$/i.test(text) ? text : "";
 }

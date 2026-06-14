@@ -35,11 +35,11 @@ Suggested detailed description:
 ```text
 MIT 课程学习侧边栏是一个用于 YouTube MIT OpenCourseWare 视频的学习辅助扩展。
 
-打开课程视频后，扩展会在右侧显示学习侧边栏，自动读取课程文字内容，并使用用户自己配置的 DeepSeek API Key 生成中文课程大纲。长视频会分段生成，已完成的段落会先显示出来，不需要等待整节课全部处理完。观看过程中，扩展也会用用户本机运行的 Ollama 视觉模型对当前视频画面里的 PPT、图示、公式或板书做单独的中文画面分析，并和字幕大纲分开显示。
+打开课程视频后，扩展会在右侧显示学习侧边栏，自动读取课程文字内容，并使用用户自己配置的 DeepSeek API Key 生成中文课程大纲。长视频会分段生成，已完成的段落会先显示出来，不需要等待整节课全部处理完。观看过程中，扩展会先在浏览器本地筛选 PPT 关键画面并提取 OCR 原文，再只把提取后的文字交给 DeepSeek 做中文分析，并和字幕大纲分开显示。
 
 主要功能：
 - 自动生成中文课程大纲
-- 单独分析 PPT、图示、公式或板书画面
+- 单独分析 PPT 关键画面中的文字内容
 - 点击时间戳跳转到对应视频位置
 - 长课程分段生成并渐进展示
 - 导出 Markdown 或复制大纲
@@ -49,12 +49,12 @@ MIT 课程学习侧边栏是一个用于 YouTube MIT OpenCourseWare 视频的学
 隐私说明：
 - 扩展不内置任何 API Key。
 - DeepSeek API Key 只保存在用户浏览器的 Chrome storage 中。
-- Ollama 地址和本地视觉模型名只保存在用户浏览器的 Chrome storage 中。
 - 课程大纲、缓存和资料库默认保存在用户本地浏览器。
 - 可选 CSV 保存只写入用户本机 `data/` 目录。
 - 扩展会向 YouTube 读取当前视频页面和字幕/文字记录数据。
-- 扩展会截取当前标签页中正在观看的视频画面，用于裁剪出课程画面并发送到用户本机 Ollama 服务分析 PPT/板书内容。
-- 扩展会将课程文字内容发送到用户配置的 DeepSeek API 端点，用于生成大纲。
+- 扩展会截取当前标签页中正在观看的视频画面，用于裁剪出课程画面并在浏览器本地筛选 PPT 关键帧、提取 OCR 原文。
+- 本地视觉模型第一次使用时会从 Hugging Face 下载模型文件，之后使用浏览器缓存。
+- 扩展会将课程文字内容和本地 OCR 后的 PPT 文字发送到用户配置的 DeepSeek API 端点，用于生成大纲和 PPT 文本分析；视频图片不会发送给 DeepSeek。
 ```
 
 ## Category
@@ -75,11 +75,11 @@ Education
 
 ### `storage`
 
-Used to store user settings, including DeepSeek configuration, local Ollama visual model configuration, sidebar preferences, cached generated outlines, visual analysis, and local library index.
+Used to store user settings, including DeepSeek configuration, sidebar preferences, cached generated outlines, visual analysis, and local library index.
 
 ### `activeTab`
 
-Used to capture the currently active YouTube lecture tab so the extension can crop the visible video area and analyze PPT, diagram, equation, or board frames. The screenshot is used only for the current user-triggered/active lecture context.
+Used to capture the currently active YouTube lecture tab so the extension can crop the visible video area, locally select PPT keyframes, and locally extract OCR text. The screenshot is used only for the current lecture context.
 
 ### `unlimitedStorage`
 
@@ -92,19 +92,19 @@ Paste these Chinese texts into the Developer Dashboard privacy page.
 ### 单一用途说明
 
 ```text
-本扩展的单一用途是在 YouTube 上观看 MIT OpenCourseWare 等课程视频时，自动读取当前视频的课程文字内容，并对视频画面中的 PPT、图示、公式或板书做单独分析，然后使用用户自己配置的 DeepSeek API Key 生成中文课程大纲，并使用用户本机 Ollama 视觉模型生成画面分析，方便学习、跳转、导出和本地保存。
+本扩展的单一用途是在 YouTube 上观看 MIT OpenCourseWare 等课程视频时，自动读取当前视频的课程文字内容，并在浏览器本地对 PPT 关键画面做筛选和 OCR 原文提取，然后使用用户自己配置的 DeepSeek API Key 生成中文课程大纲和 PPT 文本分析，方便学习、跳转、导出和本地保存。
 ```
 
 ### 请求 `storage` 的理由
 
 ```text
-本扩展需要使用 storage 在用户浏览器本地保存插件设置、DeepSeek API Key、本地 Ollama 地址、视觉模型名、侧边栏偏好、已生成的课程大纲缓存、画面分析和本地资料库索引。数据用于恢复用户设置和避免同一课程重复生成，不会出售或用于广告。
+本扩展需要使用 storage 在用户浏览器本地保存插件设置、DeepSeek API Key、侧边栏偏好、已生成的课程大纲缓存、画面分析和本地资料库索引。数据用于恢复用户设置和避免同一课程重复生成，不会出售或用于广告。
 ```
 
 ### 请求 `activeTab` 的理由
 
 ```text
-本扩展需要 activeTab 来截取用户当前正在观看的 YouTube 课程标签页，并裁剪出视频区域，用于分析 PPT、图示、公式或板书画面。截图只用于当前课程的学习分析，不会用于广告或与本功能无关的用途。
+本扩展需要 activeTab 来截取用户当前正在观看的 YouTube 课程标签页，并裁剪出视频区域，用于在浏览器本地筛选 PPT 关键帧和提取 OCR 原文。截图只用于当前课程的学习分析，不会用于广告或与本功能无关的用途。
 ```
 
 ### 请求 `unlimitedStorage` 的理由
@@ -116,13 +116,13 @@ Paste these Chinese texts into the Developer Dashboard privacy page.
 ### 请求 `https://www.youtube.com/*` 主机权限的理由
 
 ```text
-本扩展只在 YouTube 课程视频页面运行，需要读取当前视频标题、视频 ID、播放时间以及字幕/文字记录数据，并在页面右侧显示中文课程大纲、画面分析和时间戳跳转按钮。
+本扩展只在 YouTube 课程视频页面运行，需要读取当前视频标题、视频 ID、播放时间以及字幕/文字记录数据，并在页面右侧显示中文课程大纲、PPT 文本分析和时间戳跳转按钮。
 ```
 
-### 请求 `http://127.0.0.1:11434/*` 和 `http://localhost:11434/*` 主机权限的理由
+### 请求 `https://huggingface.co/*`、`https://*.huggingface.co/*`、`https://*.hf.co/*` 和 `https://*.xethub.hf.co/*` 主机权限的理由
 
 ```text
-这些本地主机权限只用于连接用户自己电脑上运行的 Ollama 服务。扩展会把采样的视频画面发送到本机 Ollama 视觉模型进行 PPT、图示、公式或板书分析，不会通过这个权限连接第三方服务器。
+这些权限只用于首次使用 PPT OCR 功能时下载浏览器本地模型文件。模型文件下载后会由浏览器缓存；采样的视频画面在用户浏览器本地处理，不会通过这些权限上传到 Hugging Face。
 ```
 
 ### 请求 `http://127.0.0.1:45873/*` 和 `http://localhost:45873/*` 主机权限的理由
@@ -141,9 +141,9 @@ Required to run the sidebar on YouTube watch pages, read lecture metadata and tr
 
 Used only for optional local CSV saving through the included local CSV server. This lets users save generated lecture records to their own machine.
 
-### `http://127.0.0.1:11434/*` and `http://localhost:11434/*`
+### `https://huggingface.co/*`, `https://*.huggingface.co/*`, `https://*.hf.co/*`, and `https://*.xethub.hf.co/*`
 
-Used only to call the user's local Ollama server for visual frame analysis.
+Used only to download browser model files for local PPT OCR on first use. Sampled video frames are processed locally in the user's browser and are not uploaded to Hugging Face.
 
 ## Data usage / privacy answers
 
@@ -151,8 +151,8 @@ Suggested answers:
 
 - Does the extension collect personally identifiable information? No.
 - Does the extension collect authentication information? The user enters a DeepSeek API Key, which is stored locally in Chrome storage and used only to call the configured DeepSeek endpoint.
-- Does the extension collect website content? It reads the current YouTube lecture page content/transcript and samples visible lecture video frames to generate study output.
-- Does the extension transmit data externally? Yes. Lecture transcript text is sent to the user-configured DeepSeek-compatible API endpoint for outline generation. Sampled video frames are sent only to the user's local Ollama server for visual analysis.
+- Does the extension collect website content? It reads the current YouTube lecture page content/transcript and samples visible lecture video frames to locally extract PPT OCR text.
+- Does the extension transmit data externally? Yes. Lecture transcript text and locally extracted PPT OCR text are sent to the user-configured DeepSeek-compatible API endpoint for outline and PPT text analysis. The browser local OCR model is downloaded from Hugging Face on first use; sampled video frames are processed locally in the browser and are not uploaded.
 - Does the extension sell or transfer user data unrelated to single-purpose use? No.
 - Does the extension use data for advertising or creditworthiness? No.
 
@@ -162,7 +162,7 @@ Prepare at least one screenshot showing:
 
 - A YouTube MIT lecture page
 - The right-side sidebar
-- A generated Chinese outline or visual analysis with timestamp jump buttons
+- A generated Chinese outline or PPT text analysis with timestamp jump buttons
 - The progress bar or generated outline state
 
 Avoid screenshots that show your real DeepSeek API key, browser profile details, private tabs, or local CSV data.

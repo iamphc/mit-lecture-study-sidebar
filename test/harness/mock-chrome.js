@@ -1,15 +1,16 @@
 const syncStore = {
+  autoAnalyze: false,
   sidebarWidth: 420,
   deepseekApiKey: "mock-key",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
-  ollamaBaseUrl: "http://127.0.0.1:11434",
-  ollamaVisionModel: "qwen2.5vl:3b",
+  visualScanIntervalSeconds: 45,
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
 
 const localStore = {
+  localSaveDirectoryName: "MockSave",
   recentLectures: [
     {
       videoId: "fixture-001",
@@ -78,16 +79,6 @@ window.chrome = {
           }
         };
       }
-      if (message?.type === "TEST_OLLAMA_CONNECTION") {
-        return {
-          ok: true,
-          result: {
-            status: "ok",
-            model: syncStore.ollamaVisionModel,
-            message: "Mock Ollama vision connection succeeded."
-          }
-        };
-      }
       if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
         return {
           ok: true,
@@ -104,6 +95,18 @@ window.chrome = {
           }
         };
       }
+      if (message?.type === "RUN_DEEPSEEK_VISUAL_TEXT_ANALYSIS") {
+        return {
+          ok: true,
+          result: {
+            title: "模拟 PPT 分析",
+            visualType: "ppt",
+            bullets: ["根据本地 OCR 原文生成的模拟要点。"],
+            relationToTranscript: "对应当前字幕上下文。",
+            tags: ["PPT", "模拟"]
+          }
+        };
+      }
       if (message?.type === "CAPTURE_VISIBLE_TAB") {
         return {
           ok: true,
@@ -113,18 +116,13 @@ window.chrome = {
           }
         };
       }
-      if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
+      if (message?.type === "SAVE_LECTURE_LOCAL") {
         return {
           ok: true,
           result: {
-            timestamp: "00:10",
-            seconds: 10,
-            title: "模拟画面分析",
-            visualType: "slides",
-            shouldKeep: true,
-            bullets: ["模拟 PPT 画面中的重点。"],
-            visibleText: ["Mock slide"],
-            relationToTranscript: "补充当前讲解。"
+            csvPath: "MockSave/lecture_library.csv",
+            lecturePath: "MockSave/lectures/mock",
+            rowCount: 1
           }
         };
       }

@@ -5,6 +5,7 @@ import {
   isEnglishDominantText,
   mergePartialStudyPacks,
   normalizeRemoteStudyPack,
+  normalizeVisualTextAnalysisResult,
   safeParseModelJson
 } from "../src/background-utils.mjs";
 
@@ -50,6 +51,38 @@ function testNormalizeRemoteStudyPack() {
   assert.deepEqual(result.outline, []);
   assert.deepEqual(result.tags, []);
   assert.equal(result.transcript.length, 2);
+}
+
+function testNormalizeVisualTextAnalysisResult() {
+  const result = normalizeVisualTextAnalysisResult(
+    {
+      title: "指令集概念",
+      bullets: ["说明 CPU 指令和内存访问的关系。", "说明这页 PPT 是本段讲解的概念提示。"],
+      relationToTranscript: "和老师正在讲的 CPU 指令一致。",
+      tags: ["CPU", "指令集", "内存访问", "CPU"]
+    },
+    {
+      timestamp: "00:12",
+      seconds: 12,
+      rawVisibleText: "CPU Instructions\nMemory Access",
+      visibleText: ["CPU Instructions", "Memory Access"],
+      visualType: "blackboard",
+      keyFrame: {
+        source: "local-keyframe-detector-v1",
+        score: 0.8,
+        visualType: "blackboard"
+      }
+    },
+    "Video"
+  );
+
+  assert.equal(result.title, "指令集概念");
+  assert.equal(result.timestamp, "00:12");
+  assert.equal(result.rawVisibleText, "CPU Instructions\nMemory Access");
+  assert.deepEqual(result.visibleText, ["CPU Instructions", "Memory Access"]);
+  assert.equal(result.visualType, "blackboard");
+  assert.deepEqual(result.tags, ["CPU", "指令集", "内存访问"]);
+  assert.equal(result.localExtraction.keyFrame.score, 0.8);
 }
 
 function testEnglishOutlineDetection() {
@@ -131,6 +164,7 @@ function main() {
   testChunkTranscript();
   testSafeParseModelJson();
   testNormalizeRemoteStudyPack();
+  testNormalizeVisualTextAnalysisResult();
   testEnglishOutlineDetection();
   testMergePartialStudyPacks();
   console.log("background-utils tests passed");
