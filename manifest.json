@@ -11,8 +11,6 @@
   },
   "permissions": [
     "storage",
-    "scripting",
-    "activeTab",
     "unlimitedStorage"
   ],
   "host_permissions": [

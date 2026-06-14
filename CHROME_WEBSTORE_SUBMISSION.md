@@ -74,17 +74,43 @@ Education
 
 Used to store user settings, including DeepSeek configuration, sidebar preferences, cached generated outlines, and local library index.
 
-### `scripting`
-
-Used to inject a page bridge on YouTube pages so the extension can read page-context YouTube metadata and transcript-related data that are not directly available to isolated content scripts.
-
-### `activeTab`
-
-Used for extension interaction with the active YouTube tab when the user opens or operates the extension.
-
 ### `unlimitedStorage`
 
 Used because lecture transcripts and generated outlines can be large for long courses, and the extension stores per-video study records locally.
+
+## Chrome Web Store privacy form copy
+
+Paste these Chinese texts into the Developer Dashboard privacy page.
+
+### 单一用途说明
+
+```text
+本扩展的单一用途是在 YouTube 上观看 MIT OpenCourseWare 等课程视频时，自动读取当前视频的课程文字内容，并使用用户自己配置的 DeepSeek API Key 生成中文课程大纲，方便学习、跳转、导出和本地保存。
+```
+
+### 请求 `storage` 的理由
+
+```text
+本扩展需要使用 storage 在用户浏览器本地保存插件设置、DeepSeek API Key、侧边栏偏好、已生成的课程大纲缓存和本地资料库索引。数据用于恢复用户设置和避免同一课程重复生成，不会出售或用于广告。
+```
+
+### 请求 `unlimitedStorage` 的理由
+
+```text
+课程视频的字幕、文字记录和生成的大纲可能很长，用户也可能保存多节课程记录。unlimitedStorage 用于在用户本机保存这些学习资料，避免长课程或多课程资料库超过普通本地存储配额。
+```
+
+### 请求 `https://www.youtube.com/*` 主机权限的理由
+
+```text
+本扩展只在 YouTube 课程视频页面运行，需要读取当前视频标题、视频 ID、播放时间以及字幕/文字记录数据，并在页面右侧显示中文课程大纲和时间戳跳转按钮。
+```
+
+### 请求 `http://127.0.0.1:45873/*` 和 `http://localhost:45873/*` 主机权限的理由
+
+```text
+这些本地主机权限只用于可选的本地 CSV 保存功能。用户启动项目内的本地 CSV 服务后，扩展会把已生成的课程记录保存到用户自己电脑上的项目 data 目录，不会连接第三方服务器。
+```
 
 ## Host permissions justification
 
