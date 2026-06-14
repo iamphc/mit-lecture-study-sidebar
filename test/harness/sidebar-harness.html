@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sidebar Harness</title>
+    <script>
+      window.__harnessLog = (message) => {
+        const log = document.getElementById("harness-log");
+        log.textContent += `${message}\n`;
+      };
+      window.ytInitialPlayerResponse = {
+        videoDetails: { title: "MIT Sidebar Harness Lecture" },
+        captions: {
+          playerCaptionsTracklistRenderer: {
+            captionTracks: [
+              {
+                baseUrl: "data:application/json,%7B%22events%22%3A%5B%7B%22tStartMs%22%3A0,%22dDurationMs%22%3A3000,%22segs%22%3A%5B%7B%22utf8%22%3A%22Welcome%20to%20the%20MIT%20harness%20lecture.%22%7D%5D%7D,%7B%22tStartMs%22%3A4000,%22dDurationMs%22%3A3000,%22segs%22%3A%5B%7B%22utf8%22%3A%22What%20is%20a%20mock%20concept%3F%22%7D%5D%7D%5D%7D",
+                languageCode: "en"
+              }
+            ]
+          }
+        }
+      };
+      history.replaceState({}, "", "https://www.youtube.com/watch?v=harness123");
+    </script>
+    <script src="./mock-chrome.js"></script>
+    <style>
+      body { margin: 0; background: #0f172a; color: white; font-family: sans-serif; }
+      .page {
+        padding: 24px;
+        width: calc(100% - 460px);
+      }
+      video {
+        width: 100%;
+        max-width: 960px;
+        height: 540px;
+        background: black;
+      }
+      pre {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        margin: 0;
+        padding: 12px;
+        width: 360px;
+        height: 180px;
+        overflow: auto;
+        background: rgba(17, 24, 39, 0.9);
+        color: #e5e7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>MIT Sidebar Harness Lecture</h1>
+      <video controls></video>
+      <p>This harness page simulates a YouTube lecture watch page enough to exercise the sidebar.</p>
+    </div>
+    <pre id="harness-log"></pre>
+    <script src="../../src/transcript-utils-content.js"></script>
+    <script src="../../src/content.js"></script>
+  </body>
+</html>

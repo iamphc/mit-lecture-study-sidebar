@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Popup Harness</title>
+    <script>
+      window.__harnessLog = (message) => {
+        const log = document.getElementById("harness-log");
+        log.textContent += `${message}\n`;
+      };
+    </script>
+    <script src="./mock-chrome.js"></script>
+    <style>
+      body { margin: 0; display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; font-family: sans-serif; }
+      pre { margin: 0; padding: 16px; background: #111827; color: #e5e7eb; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <iframe src="../../src/popup.html" style="border:0;width:320px;height:100vh;"></iframe>
+    <pre id="harness-log"></pre>
+  </body>
+</html>

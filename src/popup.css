@@ -1,0 +1,74 @@
+:root {
+  --bg: linear-gradient(180deg, #0b1324, #17243d);
+  --card: rgba(255, 255, 255, 0.08);
+  --ink: #f8fbff;
+  --muted: #c0cbdb;
+  --accent: #ffd166;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 320px;
+  min-height: 220px;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.popup-shell {
+  padding: 18px;
+}
+
+.popup-kicker {
+  margin: 0 0 6px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+}
+
+.popup-shell h1 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+.popup-copy {
+  margin: 0 0 16px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.popup-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.popup-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 14px;
+  background: linear-gradient(135deg, var(--accent), #ff9f68);
+  color: #162033;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.popup-actions .ghost {
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.popup-status {
+  min-height: 20px;
+  margin: 12px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+}

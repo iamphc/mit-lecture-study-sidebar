@@ -1,0 +1,30 @@
+<section class="mit-study-shell">
+  <header class="mit-study-header">
+    <div>
+      <p class="mit-study-kicker">MIT 课程学习</p>
+      <h1>课程大纲侧边栏</h1>
+    </div>
+    <button class="mit-study-close" type="button" aria-label="关闭侧边栏">×</button>
+  </header>
+
+  <section class="mit-study-toolbar">
+    <button data-action="generate" class="mit-study-button mit-study-button-primary">重新生成</button>
+  </section>
+
+  <section class="mit-study-meta">
+    <div>
+      <span class="mit-study-label">视频</span>
+      <strong data-slot="title">等待课程视频...</strong>
+    </div>
+  </section>
+
+  <nav class="mit-study-tabs" aria-label="学习视图">
+    <button data-tab="outline" class="is-active">大纲</button>
+    <button data-tab="library">资料库</button>
+  </nav>
+
+  <main class="mit-study-content">
+    <section class="mit-study-pane is-active" data-pane="outline"></section>
+    <section class="mit-study-pane" data-pane="library"></section>
+  </main>
+</section>

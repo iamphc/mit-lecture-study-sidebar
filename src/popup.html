@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIT 课程学习侧边栏</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <p class="popup-kicker">MIT 课程学习</p>
+      <h1>课程大纲学习工具</h1>
+      <p class="popup-copy">
+        打开 YouTube 上的 MIT 课程视频，自动生成中文大纲并保存到本地资料库。
+      </p>
+      <div class="popup-actions">
+        <button id="open-youtube" type="button">打开 MIT YouTube 搜索</button>
+        <button id="open-settings" type="button" class="ghost">插件设置</button>
+      </div>
+      <p id="popup-status" class="popup-status"></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

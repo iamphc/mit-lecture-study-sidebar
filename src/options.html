@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIT 课程学习侧边栏设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="settings-shell">
+      <section class="settings-card">
+        <p class="settings-kicker">MIT 课程学习</p>
+        <h1>插件设置</h1>
+        <p class="settings-copy">
+          使用 DeepSeek 根据课程内容生成中文大纲；缺少 API Key 时会提示填写。
+        </p>
+
+        <form id="settings-form" class="settings-form">
+          <label>
+            <span>DeepSeek API Key</span>
+            <input name="deepseekApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+          </label>
+
+          <label>
+            <span>DeepSeek Base URL</span>
+            <input name="deepseekBaseUrl" type="url" placeholder="https://api.deepseek.com" />
+          </label>
+
+          <label>
+            <span>模型</span>
+            <input name="deepseekModel" type="text" placeholder="deepseek-v4-flash" />
+          </label>
+
+          <label>
+            <span>输出语言</span>
+            <select name="outputLanguage">
+              <option value="zh-CN">中文</option>
+            </select>
+          </label>
+
+          <label>
+            <span>笔记风格</span>
+            <select name="noteTone">
+              <option value="study-handout">讲义式笔记</option>
+              <option value="structured-outline">结构化大纲</option>
+              <option value="review-notes">复习笔记</option>
+            </select>
+          </label>
+
+          <label>
+            <span>侧边栏宽度</span>
+            <input name="sidebarWidth" type="number" min="320" max="640" step="10" />
+          </label>
+
+          <div class="settings-actions">
+            <button type="submit">保存设置</button>
+            <button type="button" id="test-connection" class="secondary">测试 DeepSeek</button>
+            <span id="settings-status"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
