@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS = {
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
+  ollamaBaseUrl: "http://127.0.0.1:11434",
+  ollamaVisionModel: "qwen2.5vl:3b",
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
@@ -59,6 +61,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "TEST_OLLAMA_CONNECTION") {
+    testOllamaConnection()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    return true;
+  }
+
   if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
     runDeepSeekAnalysis(message.payload, sender.tab?.id)
       .then((result) => sendResponse({ ok: true, result }))
@@ -83,8 +97,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
-    runDeepSeekVisualAnalysis(message.payload)
+  if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
+    runOllamaVisualAnalysis(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) =>
         sendResponse({
@@ -201,19 +215,16 @@ async function runDeepSeekAnalysis(payload, tabId) {
   return normalizeRemoteStudyPack(chinesePack, payload.transcript, payload.videoTitle);
 }
 
-async function runDeepSeekVisualAnalysis(payload) {
+async function runOllamaVisualAnalysis(payload) {
   const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   config.outputLanguage = "zh-CN";
-  if (!config.deepseekApiKey) {
-    throw new Error("缺少 DeepSeek API Key，请打开插件设置填写。");
-  }
 
   const frame = payload?.frame;
   if (!frame?.imageDataUrl) {
     throw new Error("缺少可分析的视频画面。");
   }
 
-  const result = await requestDeepSeekJson(buildDeepSeekVisualMessages(payload), config);
+  const result = await requestOllamaVisualJson(buildOllamaVisualPrompt(payload), frame.imageDataUrl, config);
   return normalizeVisualAnalysis(result, frame);
 }
 
@@ -358,7 +369,7 @@ function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex
   ];
 }
 
-function buildDeepSeekVisualMessages(payload) {
+function buildOllamaVisualPrompt(payload) {
   const frame = payload.frame || {};
   const schemaExample = {
     title: "画面中文标题",
@@ -373,41 +384,19 @@ function buildDeepSeekVisualMessages(payload) {
     .map((entry) => `[${formatTime(entry.startMs)}] ${entry.text}`)
     .join("\n");
 
-  return [
-    {
-      role: "system",
-      content:
-        "You are an expert lecture visual-analysis assistant. Analyze lecture video frames that may contain slides, diagrams, equations, or board writing. " +
-        "Return valid json only. All user-facing fields must be Simplified Chinese. " +
-        "Keep the analysis separate from transcript outline content. Do not invent details that are not visible in the image."
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text:
-            `Analyze this video frame as a visual learning asset.\n` +
-            `Return strict json matching this shape exactly: ${JSON.stringify(schemaExample)}\n` +
-            `Rules:\n` +
-            `1. If the image is not a useful lecture slide/diagram/equation/board frame, set shouldKeep to false and keep bullets short.\n` +
-            `2. If useful, explain the visual content in Chinese and distinguish it from spoken transcript content.\n` +
-            `3. visibleText should list only important visible words, formulas, or labels from the frame.\n` +
-            `4. Use the transcript context only to clarify the frame, not as the source of visual facts.\n` +
-            `5. Video title: ${payload.videoTitle || ""}\n` +
-            `6. Frame timestamp: ${formatTime((frame.seconds || 0) * 1000)}\n\n` +
-            `Nearby transcript:\n${contextText || "-"}`
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: frame.imageDataUrl,
-            detail: "low"
-          }
-        }
-      ]
-    }
-  ];
+  return (
+    `你是一个课程视频画面分析助手。请分析这张视频帧里是否有 PPT、图示、公式或板书。\n` +
+    `所有面向用户的内容必须用简体中文。只根据画面可见内容分析，不要编造。\n` +
+    `返回严格 JSON，不要 markdown，格式必须匹配：${JSON.stringify(schemaExample)}\n\n` +
+    `规则：\n` +
+    `1. 如果画面不是有用的课程 PPT、图示、公式或板书，shouldKeep=false，bullets 保持很短。\n` +
+    `2. 如果有用，请解释画面内容，并明确它是画面信息，不要和字幕大纲混在一起。\n` +
+    `3. visibleText 只列出画面中重要的文字、公式或标签。\n` +
+    `4. 附近字幕只能用于辅助理解，不要把字幕当成画面事实。\n` +
+    `5. 视频标题：${payload.videoTitle || ""}\n` +
+    `6. 画面时间：${formatTime((frame.seconds || 0) * 1000)}\n\n` +
+    `附近字幕：\n${contextText || "-"}`
+  );
 }
 
 function normalizeVisualAnalysis(result, frame) {
@@ -425,6 +414,29 @@ function normalizeVisualAnalysis(result, frame) {
       ? result.visibleText.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
       : [],
     relationToTranscript: String(result?.relationToTranscript || "").trim()
+  };
+}
+
+async function testOllamaConnection() {
+  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const baseUrl = trimTrailingSlash(config.ollamaBaseUrl || DEFAULT_SETTINGS.ollamaBaseUrl);
+  const model = config.ollamaVisionModel || DEFAULT_SETTINGS.ollamaVisionModel;
+  const response = await fetch(`${baseUrl}/api/tags`);
+  if (!response.ok) {
+    throw new Error(`Ollama 连接失败，状态码 ${response.status}。请确认 ollama serve 已启动。`);
+  }
+
+  const payload = await response.json();
+  const models = Array.isArray(payload?.models) ? payload.models : [];
+  const exists = models.some((item) => item?.name === model || item?.model === model);
+  if (!exists) {
+    throw new Error(`Ollama 已启动，但没有找到模型 ${model}。请执行：ollama pull ${model}`);
+  }
+
+  return {
+    status: "ok",
+    model,
+    message: "本地 Ollama 视觉模型可用。"
   };
 }
 
@@ -536,6 +548,45 @@ async function requestDeepSeekJson(messages, config, options = {}) {
     }
     return repairDeepSeekJson(error.rawText, config);
   }
+}
+
+async function requestOllamaVisualJson(prompt, imageDataUrl, config) {
+  const baseUrl = trimTrailingSlash(config.ollamaBaseUrl || DEFAULT_SETTINGS.ollamaBaseUrl);
+  const model = config.ollamaVisionModel || DEFAULT_SETTINGS.ollamaVisionModel;
+  const response = await fetch(`${baseUrl}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+          images: [stripDataUrlPrefix(imageDataUrl)]
+        }
+      ],
+      format: "json",
+      stream: false
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ollama 画面分析失败，状态码 ${response.status}: ${errorText.slice(0, 300)}`);
+  }
+
+  const json = await response.json();
+  const content = json?.message?.content;
+  if (!content) {
+    throw new Error("Ollama 返回了空响应。");
+  }
+  return safeParseModelJson(content);
+}
+
+function stripDataUrlPrefix(dataUrl) {
+  return String(dataUrl || "").replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
 }
 
 function trimTrailingSlash(text) {

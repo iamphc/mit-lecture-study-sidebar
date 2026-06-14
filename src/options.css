@@ -67,6 +67,12 @@ body {
   font-weight: 600;
 }
 
+.settings-form small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .settings-form input,
 .settings-form select,
 .settings-form button {
@@ -84,6 +90,7 @@ body {
 
 .settings-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-top: 8px;

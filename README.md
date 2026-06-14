@@ -8,6 +8,7 @@ Chrome extension for studying MIT OpenCourseWare videos on YouTube. It automatic
 - Separately analyzes visible lecture frames such as PPT slides, diagrams, equations, and board writing
 - Works in a right-side overlay that remains visible even when the video enters fullscreen
 - Uses DeepSeek for outline generation
+- Uses local Ollama for visual frame analysis by default
 - Exports the generated outline as Markdown or copies it to clipboard
 - Saves per-video study results locally and shows recent lecture history
 - Splits long lecture content into multiple DeepSeek requests, progressively renders completed chunks, and locally deduplicates the final outline
@@ -75,6 +76,23 @@ Default values:
 
 If your DeepSeek account uses a different compatible endpoint or model name, change it in settings.
 
+## Local Ollama visual setup
+
+Visual frame analysis is local by default. Install Ollama and pull the default vision model:
+
+```bash
+brew install ollama
+ollama pull qwen2.5vl:3b
+ollama serve
+```
+
+Default values:
+
+- Ollama URL: `http://127.0.0.1:11434`
+- Vision model: `qwen2.5vl:3b`
+
+Use the settings page button `测试本地视觉模型` to check whether Ollama is running and the model is installed.
+
 ## Usage flow
 
 1. Open a YouTube MIT lecture.
@@ -130,7 +148,8 @@ For the final real-environment acceptance pass, follow:
 
 ## Product behavior
 
-- DeepSeek is the only generation path
+- DeepSeek is used for transcript outline generation
+- Local Ollama is used for PPT, board, equation, and diagram frame analysis
 - Saved lecture results are cached per YouTube video ID
 - Long lecture content is chunked before DeepSeek analysis; completed chunks appear progressively in the sidebar
 - PPT, board, equation, and diagram frame analysis is stored separately from transcript-based outline content
@@ -148,7 +167,7 @@ For the final real-environment acceptance pass, follow:
 - Content extraction can still break if YouTube changes page metadata structure
 - The current export is Markdown only
 - Transcript outline generation needs a DeepSeek-compatible text model
-- Visual frame analysis needs the configured DeepSeek-compatible model endpoint to support `image_url` chat input
+- Visual frame analysis needs local Ollama running with a vision-capable model such as `qwen2.5vl:3b`
 
 ## Release checklist
 

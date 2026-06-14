@@ -16,6 +16,8 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
+    "http://127.0.0.1:11434/*",
+    "http://localhost:11434/*",
     "http://127.0.0.1:45873/*",
     "http://localhost:45873/*"
   ],

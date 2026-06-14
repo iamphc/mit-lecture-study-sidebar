@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS = {
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
+  ollamaBaseUrl: "http://127.0.0.1:11434",
+  ollamaVisionModel: "qwen2.5vl:3b",
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
@@ -74,13 +76,13 @@ const UI_TEXT = {
   outline: "大纲",
   visual: "画面",
   visualAnalysis: "画面分析",
-  visualStatusIdle: "播放课程时会自动分析 PPT、板书和图示画面。",
+  visualStatusIdle: "播放课程时会用本地 Ollama 自动分析 PPT、板书和图示画面。",
   visualStatusWaiting: "等待可分析的视频画面。",
   visualStatusCapturing: "正在截取当前画面...",
   visualStatusAnalyzing: "正在分析画面...",
   visualStatusReady: "画面分析已更新",
   visualStatusSkipped: "当前画面变化不明显，已跳过。",
-  visualStatusModelFailed: "画面分析失败，请确认当前 DeepSeek 模型支持图片输入。",
+  visualStatusModelFailed: "画面分析失败，请确认 Ollama 已启动并已拉取 qwen2.5vl:3b。",
   visualVisibleText: "画面文字",
   visualRelation: "和讲解的关系",
   lectureNotes: "",
@@ -595,7 +597,7 @@ async function loadTranscript() {
 }
 
 async function sampleVisualFrame() {
-  if (!state.videoId || state.visualAnalysisInFlight || !state.settings.deepseekApiKey) {
+  if (!state.videoId || state.visualAnalysisInFlight) {
     return;
   }
 
@@ -788,7 +790,7 @@ function signatureDistance(left, right) {
 
 async function analyzeVisualFrame(frame) {
   const response = await chrome.runtime.sendMessage({
-    type: "RUN_DEEPSEEK_VISUAL_ANALYSIS",
+    type: "RUN_OLLAMA_VISUAL_ANALYSIS",
     payload: {
       videoId: state.videoId,
       videoTitle: state.videoTitle,

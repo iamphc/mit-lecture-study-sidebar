@@ -3,6 +3,8 @@ const syncStore = {
   deepseekApiKey: "mock-key",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
+  ollamaBaseUrl: "http://127.0.0.1:11434",
+  ollamaVisionModel: "qwen2.5vl:3b",
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
@@ -76,6 +78,16 @@ window.chrome = {
           }
         };
       }
+      if (message?.type === "TEST_OLLAMA_CONNECTION") {
+        return {
+          ok: true,
+          result: {
+            status: "ok",
+            model: syncStore.ollamaVisionModel,
+            message: "Mock Ollama vision connection succeeded."
+          }
+        };
+      }
       if (message?.type === "RUN_DEEPSEEK_ANALYSIS") {
         return {
           ok: true,
@@ -101,7 +113,7 @@ window.chrome = {
           }
         };
       }
-      if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
+      if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
         return {
           ok: true,
           result: {

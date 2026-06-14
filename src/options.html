@@ -12,7 +12,7 @@
         <p class="settings-kicker">MIT 课程学习</p>
         <h1>插件设置</h1>
         <p class="settings-copy">
-          使用 DeepSeek 根据课程内容生成中文大纲；缺少 API Key 时会提示填写。
+          使用 DeepSeek 根据课程内容生成中文大纲；PPT、图示和板书画面默认使用本地 Ollama 识别。
         </p>
 
         <form id="settings-form" class="settings-form">
@@ -29,6 +29,17 @@
           <label>
             <span>模型</span>
             <input name="deepseekModel" type="text" placeholder="deepseek-v4-flash" />
+          </label>
+
+          <label>
+            <span>本地 Ollama 地址</span>
+            <input name="ollamaBaseUrl" type="url" placeholder="http://127.0.0.1:11434" />
+          </label>
+
+          <label>
+            <span>本地视觉模型</span>
+            <input name="ollamaVisionModel" type="text" placeholder="qwen2.5vl:3b" />
+            <small>建议先执行：ollama pull qwen2.5vl:3b</small>
           </label>
 
           <label>
@@ -55,6 +66,7 @@
           <div class="settings-actions">
             <button type="submit">保存设置</button>
             <button type="button" id="test-connection" class="secondary">测试 DeepSeek</button>
+            <button type="button" id="test-ollama" class="secondary">测试本地视觉模型</button>
             <span id="settings-status"></span>
           </div>
         </form>

@@ -18,6 +18,8 @@ function buildMockChrome() {
     deepseekApiKey: "mock-key",
     deepseekBaseUrl: "https://api.deepseek.com",
     deepseekModel: "deepseek-v4-flash",
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    ollamaVisionModel: "qwen2.5vl:3b",
     outputLanguage: "zh-CN",
     noteTone: "study-handout"
   };
@@ -67,7 +69,7 @@ function buildMockChrome() {
             }
           };
         }
-        if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
+        if (message?.type === "RUN_OLLAMA_VISUAL_ANALYSIS") {
           return {
             ok: true,
             result: {
@@ -88,6 +90,16 @@ function buildMockChrome() {
             result: {
               status: "ok",
               model: syncStore.deepseekModel,
+              message: "ok"
+            }
+          };
+        }
+        if (message?.type === "TEST_OLLAMA_CONNECTION") {
+          return {
+            ok: true,
+            result: {
+              status: "ok",
+              model: syncStore.ollamaVisionModel,
               message: "ok"
             }
           };
@@ -229,6 +241,8 @@ async function testOptions() {
     assert.match(heading, /插件设置/);
     const modelInput = dom.window.document.querySelector('input[name="deepseekModel"]');
     assert.equal(modelInput?.value, "deepseek-v4-flash");
+    const visualModelInput = dom.window.document.querySelector('input[name="ollamaVisionModel"]');
+    assert.equal(visualModelInput?.value, "qwen2.5vl:3b");
   } finally {
     dom.window.close();
   }
