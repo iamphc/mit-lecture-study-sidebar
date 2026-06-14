@@ -265,6 +265,23 @@
   line-height: 1.5;
 }
 
+.mit-study-visual-status {
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(142, 202, 230, 0.12);
+  border: 1px solid rgba(142, 202, 230, 0.2);
+  color: var(--mit-study-accent-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mit-study-visual-status small {
+  display: block;
+  margin-top: 4px;
+  color: var(--mit-study-muted);
+}
+
 .mit-study-progress {
   margin-top: 10px;
 }
@@ -340,6 +357,10 @@
   color: var(--mit-study-muted);
   line-height: 1.5;
   font-size: 13px;
+}
+
+.mit-study-visual-item p strong {
+  color: var(--mit-study-text);
 }
 
 .mit-study-item ul {

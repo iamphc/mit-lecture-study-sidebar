@@ -92,6 +92,30 @@ window.chrome = {
           }
         };
       }
+      if (message?.type === "CAPTURE_VISIBLE_TAB") {
+        return {
+          ok: true,
+          result: {
+            dataUrl:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg=="
+          }
+        };
+      }
+      if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
+        return {
+          ok: true,
+          result: {
+            timestamp: "00:10",
+            seconds: 10,
+            title: "模拟画面分析",
+            visualType: "slides",
+            shouldKeep: true,
+            bullets: ["模拟 PPT 画面中的重点。"],
+            visibleText: ["Mock slide"],
+            relationToTranscript: "补充当前讲解。"
+          }
+        };
+      }
       return { ok: true };
     },
     openOptionsPage() {
@@ -101,6 +125,9 @@ window.chrome = {
   tabs: {
     create({ url }) {
       window.__harnessLog(`openTab:${url}`);
+    },
+    async captureVisibleTab() {
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg==";
     }
   },
   storage: {

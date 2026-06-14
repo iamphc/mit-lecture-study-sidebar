@@ -13,6 +13,7 @@ export const CSV_HEADERS = [
   "transcript_line_count",
   "transcript_text",
   "transcript_json",
+  "visual_analysis_json",
   "summary",
   "tags",
   "tags_json",

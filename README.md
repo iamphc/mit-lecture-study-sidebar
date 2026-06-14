@@ -5,6 +5,7 @@ Chrome extension for studying MIT OpenCourseWare videos on YouTube. It automatic
 ## Core capabilities
 
 - Generates a structured lecture outline
+- Separately analyzes visible lecture frames such as PPT slides, diagrams, equations, and board writing
 - Works in a right-side overlay that remains visible even when the video enters fullscreen
 - Uses DeepSeek for outline generation
 - Exports the generated outline as Markdown or copies it to clipboard
@@ -78,9 +79,10 @@ If your DeepSeek account uses a different compatible endpoint or model name, cha
 
 1. Open a YouTube MIT lecture.
 2. The sidebar automatically generates a Chinese outline.
-3. Use `Jump` to go back to the relevant video timestamp.
-4. Use `Export MD` or `Copy` after generation.
-5. Reopen the same lecture later and restore from local cache, or open it from the library tab.
+3. Keep watching the lecture. The `画面` tab progressively collects separate PPT/board visual analysis when useful frames appear.
+4. Use `Jump` to go back to the relevant video timestamp.
+5. Use `Export MD` or `Copy` after generation.
+6. Reopen the same lecture later and restore from local cache, or open it from the library tab.
 
 ## Packaging
 
@@ -131,6 +133,7 @@ For the final real-environment acceptance pass, follow:
 - DeepSeek is the only generation path
 - Saved lecture results are cached per YouTube video ID
 - Long lecture content is chunked before DeepSeek analysis; completed chunks appear progressively in the sidebar
+- PPT, board, equation, and diagram frame analysis is stored separately from transcript-based outline content
 - Final outlines are locally merged, deduplicated, and sorted by timestamp
 - Malformed model JSON is retried through a repair prompt; if one chunk still cannot be repaired, that chunk is skipped instead of failing the whole lecture
 - Settings changes propagate to the sidebar without manually editing code
@@ -144,14 +147,15 @@ For the final real-environment acceptance pass, follow:
 - It still depends on YouTube exposing usable lecture text data on the watch page
 - Content extraction can still break if YouTube changes page metadata structure
 - The current export is Markdown only
-- DeepSeek runtime behavior depends on a valid API key and current DeepSeek API compatibility
+- Transcript outline generation needs a DeepSeek-compatible text model
+- Visual frame analysis needs the configured DeepSeek-compatible model endpoint to support `image_url` chat input
 
 ## Release checklist
 
 1. Run `npm run verify`
 2. Run `npm run pack`
 3. Load `dist/mit-lecture-study-sidebar` in Chrome
-4. Verify popup, options page, sidebar injection, fullscreen sidebar, and DeepSeek generation on a real MIT lecture page
+4. Verify popup, options page, sidebar injection, fullscreen sidebar, DeepSeek generation, and visual frame analysis on a real MIT lecture page
 
 ## Best next improvements
 

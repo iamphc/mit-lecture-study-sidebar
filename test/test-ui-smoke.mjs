@@ -58,6 +58,30 @@ function buildMockChrome() {
             }
           };
         }
+        if (message?.type === "CAPTURE_VISIBLE_TAB") {
+          return {
+            ok: true,
+            result: {
+              dataUrl:
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg=="
+            }
+          };
+        }
+        if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
+          return {
+            ok: true,
+            result: {
+              timestamp: "00:10",
+              seconds: 10,
+              title: "模拟 PPT 画面",
+              visualType: "slides",
+              shouldKeep: true,
+              bullets: ["画面里有课程结构。"],
+              visibleText: ["MIT"],
+              relationToTranscript: "补充当前讲解。"
+            }
+          };
+        }
         if (message?.type === "TEST_DEEPSEEK_CONNECTION") {
           return {
             ok: true,
@@ -82,7 +106,10 @@ function buildMockChrome() {
       openOptionsPage() {}
     },
     tabs: {
-      create() {}
+      create() {},
+      async captureVisibleTab() {
+        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFeAJ5o6X7sAAAAABJRU5ErkJggg==";
+      }
     },
     storage: {
       onChanged: {
@@ -831,6 +858,76 @@ async function testProgressiveOutlineRendersPartialPack() {
   dom.window.close();
 }
 
+async function testVisualAnalysisTabRendersSeparately() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>MIT Sidebar Smoke - YouTube</title></head><body><h1 class="title">MIT Sidebar Smoke</h1><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=smoke888",
+      runScripts: "dangerously"
+    }
+  );
+
+  const chrome = buildMockChrome();
+  await chrome.storage.local.set({
+    "studyPack:smoke888": {
+      updatedAt: new Date().toISOString(),
+      videoTitle: "MIT Sidebar Smoke",
+      studyPackCacheVersion: "outline-zh-v1",
+      transcript: [
+        {
+          startMs: 0,
+          durationMs: 3000,
+          text: "Visual frame context."
+        }
+      ],
+      studyPack: {
+        title: "模拟课程",
+        outline: [
+          {
+            timestamp: "00:00",
+            seconds: 0,
+            heading: "字幕大纲",
+            bullets: ["字幕内容。"]
+          }
+        ]
+      },
+      visualAnalysis: [
+        {
+          timestamp: "00:15",
+          seconds: 15,
+          title: "PPT 里的流程图",
+          visualType: "slides",
+          shouldKeep: true,
+          bullets: ["流程图展示输入到输出的路径。"],
+          visibleText: ["Input", "Output"],
+          relationToTranscript: "对应老师正在解释的数据流。"
+        }
+      ]
+    }
+  });
+
+  installClipboardMock(dom.window);
+  dom.window.chrome = chrome;
+  dom.window.eval(scriptUtils);
+  dom.window.eval(contentScript);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  assert.equal(dom.window.document.querySelector('[data-tab="visual"]')?.textContent, "画面");
+  const outlinePaneText = dom.window.document.querySelector('[data-pane="outline"]')?.textContent || "";
+  assert.match(outlinePaneText, /字幕大纲/);
+  assert.doesNotMatch(outlinePaneText, /PPT 里的流程图/);
+
+  dom.window.document.querySelector('[data-tab="visual"]')?.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const visualPaneText = dom.window.document.querySelector('[data-pane="visual"]')?.textContent || "";
+  assert.match(visualPaneText, /PPT 里的流程图/);
+  assert.match(visualPaneText, /流程图展示输入到输出的路径/);
+  assert.match(visualPaneText, /画面文字/);
+  dom.window.close();
+}
+
 async function main() {
   await testPopup();
   await testOptions();
@@ -841,6 +938,7 @@ async function main() {
   await testTranscriptApiUsesHtmlYtcfgFallback();
   await testDeepSeekModeWithoutApiKeyShowsPrompt();
   await testProgressiveOutlineRendersPartialPack();
+  await testVisualAnalysisTabRendersSeparately();
   console.log("ui smoke tests passed");
   process.exit(0);
 }

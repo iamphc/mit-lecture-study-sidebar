@@ -3,7 +3,7 @@ const APP_ROOT_ID = "mit-study-sidebar-root";
 const LIBRARY_INDEX_KEY = "lectureLibrary:index";
 const LIBRARY_SEARCH_TEXT_LIMIT = 60000;
 const STUDY_PACK_CACHE_VERSION = "outline-zh-v1";
-const VISIBLE_TABS = new Set(["outline", "library"]);
+const VISIBLE_TABS = new Set(["outline", "visual", "library"]);
 const DEFAULT_SETTINGS = {
   sidebarWidth: 420,
   deepseekApiKey: "",
@@ -16,6 +16,15 @@ const DEFAULT_SETTINGS = {
 const PAGE_BRIDGE_REQUEST_TIMEOUT_MS = 8000;
 const PAGE_BRIDGE_LOAD_TIMEOUT_MS = 3000;
 const AUTO_STUDY_PACK_DELAY_MS = 400;
+const VISUAL_SAMPLE_START_DELAY_MS = 6000;
+const VISUAL_SAMPLE_INTERVAL_MS = 45000;
+const VISUAL_MIN_SECONDS_BETWEEN_FRAMES = 35;
+const VISUAL_FRAME_MAX_WIDTH = 720;
+const VISUAL_FRAME_JPEG_QUALITY = 0.72;
+const VISUAL_SIGNATURE_WIDTH = 12;
+const VISUAL_SIGNATURE_HEIGHT = 7;
+const VISUAL_SIGNATURE_DIFF_THRESHOLD = 0.12;
+const VISUAL_MAX_ANALYSIS_ITEMS = 32;
 const INNERTUBE_ANDROID_CLIENT = {
   clientName: "ANDROID",
   clientVersion: "20.10.38",
@@ -63,6 +72,17 @@ const UI_TEXT = {
   recentLectures: "最近课程",
   clear: "清空",
   outline: "大纲",
+  visual: "画面",
+  visualAnalysis: "画面分析",
+  visualStatusIdle: "播放课程时会自动分析 PPT、板书和图示画面。",
+  visualStatusWaiting: "等待可分析的视频画面。",
+  visualStatusCapturing: "正在截取当前画面...",
+  visualStatusAnalyzing: "正在分析画面...",
+  visualStatusReady: "画面分析已更新",
+  visualStatusSkipped: "当前画面变化不明显，已跳过。",
+  visualStatusModelFailed: "画面分析失败，请确认当前 DeepSeek 模型支持图片输入。",
+  visualVisibleText: "画面文字",
+  visualRelation: "和讲解的关系",
   lectureNotes: "",
   concepts: "",
   tags: "",
@@ -104,6 +124,7 @@ const UI_TEXT = {
   libraryQuestions: () => "",
   emptyOutline: "正在等待自动生成的大纲。",
   emptyOutlineGenerating: "正在生成大纲，完成一段会先显示在这里。",
+  emptyVisual: "播放课程时会自动收集 PPT、板书和图示画面分析。",
   partialOutlineReady: (count, current, total) => `已生成 ${count} 个大纲小节，正在继续处理第 ${current}/${total} 段`,
   jump: "跳转",
   saved: "已保存",
@@ -137,6 +158,7 @@ const UI_TEXT = {
   valueNo: "否",
   markdownFallbackTitle: "MIT 课程大纲",
   markdownOutline: "大纲",
+  markdownVisual: "画面分析",
   markdownTags: "",
   markdownLectureNotes: "",
   markdownConcepts: "",
@@ -179,6 +201,9 @@ const state = {
   transcript: [],
   studyPack: null,
   studyPackFinal: false,
+  visualAnalysis: [],
+  visualAnalysisStatus: uiText("visualStatusIdle"),
+  visualAnalysisError: "",
   videoId: "",
   videoTitle: "",
   activeTab: "outline",
@@ -188,6 +213,10 @@ const state = {
   statusError: false,
   currentVideoTime: 0,
   timerId: null,
+  visualTimerId: null,
+  visualAnalysisInFlight: false,
+  visualLastSampleSeconds: -Infinity,
+  visualLastSignature: "",
   recentLectures: [],
   libraryIndex: [],
   librarySearchQuery: "",
@@ -222,6 +251,7 @@ async function boot() {
   observePageTransitions();
   bindGlobalEvents();
   startPlaybackSync();
+  startVisualSampling();
   void syncVideoContext();
 }
 
@@ -445,6 +475,14 @@ function startPlaybackSync() {
   }, 1000);
 }
 
+function startVisualSampling() {
+  if (state.visualTimerId) {
+    window.clearInterval(state.visualTimerId);
+  }
+  window.setTimeout(sampleVisualFrame, VISUAL_SAMPLE_START_DELAY_MS);
+  state.visualTimerId = window.setInterval(sampleVisualFrame, VISUAL_SAMPLE_INTERVAL_MS);
+}
+
 function highlightCurrentTranscript() {
   const root = document.getElementById(APP_ROOT_ID);
   if (!root) {
@@ -477,7 +515,13 @@ async function syncVideoContext() {
   state.transcript = [];
   state.studyPack = null;
   state.studyPackFinal = false;
+  state.visualAnalysis = [];
+  state.visualAnalysisStatus = uiText("visualStatusIdle");
+  state.visualAnalysisError = "";
   state.activeTab = "outline";
+  state.visualAnalysisInFlight = false;
+  state.visualLastSampleSeconds = -Infinity;
+  state.visualLastSignature = "";
   state.usedFallback = false;
   state.lastCaptionTrackLanguage = "";
   state.autoRunVideoId = "";
@@ -548,6 +592,259 @@ async function loadTranscript() {
       render();
     }
   }
+}
+
+async function sampleVisualFrame() {
+  if (!state.videoId || state.visualAnalysisInFlight || !state.settings.deepseekApiKey) {
+    return;
+  }
+
+  const video = document.querySelector("video");
+  if (!(video instanceof HTMLVideoElement) || video.readyState < 2) {
+    state.visualAnalysisStatus = uiText("visualStatusWaiting");
+    return;
+  }
+
+  const seconds = Math.floor(video.currentTime || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return;
+  }
+  if (seconds - state.visualLastSampleSeconds < VISUAL_MIN_SECONDS_BETWEEN_FRAMES) {
+    return;
+  }
+
+  const videoIdAtStart = state.videoId;
+  state.visualAnalysisInFlight = true;
+  state.visualAnalysisStatus = uiText("visualStatusCapturing");
+  state.visualAnalysisError = "";
+  render();
+
+  try {
+    const frame = await captureCurrentVideoFrame(video, seconds);
+    if (!frame || state.videoId !== videoIdAtStart) {
+      return;
+    }
+
+    if (state.visualLastSignature && signatureDistance(state.visualLastSignature, frame.signature) < VISUAL_SIGNATURE_DIFF_THRESHOLD) {
+      state.visualAnalysisStatus = uiText("visualStatusSkipped");
+      return;
+    }
+
+    state.visualAnalysisStatus = uiText("visualStatusAnalyzing");
+    render();
+    const analysis = await analyzeVisualFrame(frame);
+    if (state.videoId !== videoIdAtStart || !analysis?.shouldKeep) {
+      state.visualLastSignature = frame.signature;
+      state.visualLastSampleSeconds = seconds;
+      return;
+    }
+
+    state.visualLastSignature = frame.signature;
+    state.visualLastSampleSeconds = seconds;
+    state.visualAnalysis = mergeVisualAnalysisItems(state.visualAnalysis, [analysis]).slice(0, VISUAL_MAX_ANALYSIS_ITEMS);
+    state.visualAnalysisStatus = uiText("visualStatusReady");
+    await persistVideoCache({ skipCsv: true });
+  } catch (error) {
+    state.visualAnalysisError = error instanceof Error ? error.message : String(error);
+    state.visualAnalysisStatus = uiText("visualStatusModelFailed");
+    writeDebug("visual-analysis-failed", {
+      message: state.visualAnalysisError
+    });
+  } finally {
+    state.visualAnalysisInFlight = false;
+    render();
+  }
+}
+
+async function captureCurrentVideoFrame(video, seconds) {
+  const directFrame = captureVideoElementFrame(video, seconds);
+  if (directFrame) {
+    return directFrame;
+  }
+
+  const response = await captureVisibleTabWithoutSidebar();
+  if (!response?.ok || !response.result?.dataUrl) {
+    throw new Error(response?.error || "当前标签页截图失败。");
+  }
+
+  const crop = getVideoCropRect(video);
+  const image = await loadImage(response.result.dataUrl);
+  const scaleX = image.naturalWidth / Math.max(window.innerWidth || 1, 1);
+  const scaleY = image.naturalHeight / Math.max(window.innerHeight || 1, 1);
+  const sourceX = Math.max(0, Math.round(crop.left * scaleX));
+  const sourceY = Math.max(0, Math.round(crop.top * scaleY));
+  const sourceWidth = Math.max(1, Math.min(image.naturalWidth - sourceX, Math.round(crop.width * scaleX)));
+  const sourceHeight = Math.max(1, Math.min(image.naturalHeight - sourceY, Math.round(crop.height * scaleY)));
+  const targetWidth = Math.min(VISUAL_FRAME_MAX_WIDTH, sourceWidth);
+  const targetHeight = Math.max(1, Math.round((sourceHeight / sourceWidth) * targetWidth));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("当前浏览器无法处理视频画面。");
+  }
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+
+  return {
+    seconds,
+    timestamp: formatTime(seconds * 1000),
+    imageDataUrl: canvas.toDataURL("image/jpeg", VISUAL_FRAME_JPEG_QUALITY),
+    signature: buildFrameSignature(context, targetWidth, targetHeight)
+  };
+}
+
+function captureVideoElementFrame(video, seconds) {
+  const width = Math.max(1, Number(video.videoWidth) || Math.round(video.getBoundingClientRect().width) || 1);
+  const height = Math.max(1, Number(video.videoHeight) || Math.round(video.getBoundingClientRect().height) || 1);
+  const targetWidth = Math.min(VISUAL_FRAME_MAX_WIDTH, width);
+  const targetHeight = Math.max(1, Math.round((height / width) * targetWidth));
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  try {
+    context.drawImage(video, 0, 0, targetWidth, targetHeight);
+    return {
+      seconds,
+      timestamp: formatTime(seconds * 1000),
+      imageDataUrl: canvas.toDataURL("image/jpeg", VISUAL_FRAME_JPEG_QUALITY),
+      signature: buildFrameSignature(context, targetWidth, targetHeight)
+    };
+  } catch (error) {
+    writeDebug("visual-direct-frame-failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+async function captureVisibleTabWithoutSidebar() {
+  const host = document.getElementById(SIDEBAR_HOST_ID);
+  const previousVisibility = host instanceof HTMLElement ? host.style.visibility : "";
+  if (host instanceof HTMLElement) {
+    host.style.visibility = "hidden";
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+  try {
+    return await chrome.runtime.sendMessage({ type: "CAPTURE_VISIBLE_TAB" });
+  } finally {
+    if (host instanceof HTMLElement) {
+      host.style.visibility = previousVisibility;
+    }
+  }
+}
+
+function getVideoCropRect(video) {
+  const rect = video.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.width;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || rect.height;
+  return {
+    left: Math.max(0, rect.left),
+    top: Math.max(0, rect.top),
+    width: Math.max(1, Math.min(rect.width, viewportWidth - Math.max(0, rect.left))),
+    height: Math.max(1, Math.min(rect.height, viewportHeight - Math.max(0, rect.top)))
+  };
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("截图图片加载失败。"));
+    image.src = src;
+  });
+}
+
+function buildFrameSignature(context, width, height) {
+  const signature = [];
+  for (let y = 0; y < VISUAL_SIGNATURE_HEIGHT; y += 1) {
+    for (let x = 0; x < VISUAL_SIGNATURE_WIDTH; x += 1) {
+      const px = Math.min(width - 1, Math.floor(((x + 0.5) / VISUAL_SIGNATURE_WIDTH) * width));
+      const py = Math.min(height - 1, Math.floor(((y + 0.5) / VISUAL_SIGNATURE_HEIGHT) * height));
+      const data = context.getImageData(px, py, 1, 1).data;
+      signature.push(Math.round((data[0] + data[1] + data[2]) / 3 / 16).toString(16));
+    }
+  }
+  return signature.join("");
+}
+
+function signatureDistance(left, right) {
+  const length = Math.min(left.length, right.length);
+  if (!length) {
+    return 1;
+  }
+  let total = 0;
+  for (let index = 0; index < length; index += 1) {
+    total += Math.abs(parseInt(left[index], 16) - parseInt(right[index], 16)) / 15;
+  }
+  return total / length;
+}
+
+async function analyzeVisualFrame(frame) {
+  const response = await chrome.runtime.sendMessage({
+    type: "RUN_DEEPSEEK_VISUAL_ANALYSIS",
+    payload: {
+      videoId: state.videoId,
+      videoTitle: state.videoTitle,
+      frame,
+      transcriptContext: getTranscriptContext(frame.seconds)
+    }
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "DeepSeek 画面分析失败。");
+  }
+  return normalizeVisualAnalysisItem(response.result || frame);
+}
+
+function getTranscriptContext(seconds) {
+  const startMs = Math.max(0, (seconds - 25) * 1000);
+  const endMs = (seconds + 25) * 1000;
+  return state.transcript
+    .filter((entry) => entry.startMs >= startMs && entry.startMs <= endMs)
+    .slice(0, 12);
+}
+
+function normalizeVisualAnalysisItem(item) {
+  const seconds = Number(item?.seconds);
+  const startMs = Number.isFinite(seconds) ? seconds * 1000 : parseTimestampToMs(item?.timestamp);
+  return {
+    timestamp: item?.timestamp || formatTime(startMs),
+    seconds: Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : Math.floor(startMs / 1000),
+    title: String(item?.title || "").trim(),
+    visualType: String(item?.visualType || "visual").trim(),
+    shouldKeep: item?.shouldKeep !== false,
+    bullets: Array.isArray(item?.bullets)
+      ? item.bullets.map((bullet) => String(bullet || "").trim()).filter(Boolean)
+      : [],
+    visibleText: Array.isArray(item?.visibleText)
+      ? item.visibleText.map((text) => String(text || "").trim()).filter(Boolean)
+      : [],
+    relationToTranscript: String(item?.relationToTranscript || "").trim()
+  };
+}
+
+function mergeVisualAnalysisItems(existingItems, nextItems) {
+  const seen = new Set();
+  return [...(existingItems || []), ...(nextItems || [])]
+    .map(normalizeVisualAnalysisItem)
+    .filter((item) => item.shouldKeep && (item.title || item.bullets.length || item.visibleText.length))
+    .filter((item) => {
+      const bucket = Math.round((item.seconds || 0) / 15);
+      const key = `${bucket}|${item.title}`.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => Number(left.seconds || 0) - Number(right.seconds || 0));
 }
 
 async function fetchTranscript() {
@@ -1670,6 +1967,12 @@ async function hydrateVideoCache() {
   state.transcript = Array.isArray(cached.transcript) ? cached.transcript : [];
   state.studyPack = isCurrentStudyPackCache(cached) ? cached.studyPack : null;
   state.studyPackFinal = Boolean(state.studyPack);
+  state.visualAnalysis = Array.isArray(cached.visualAnalysis)
+    ? mergeVisualAnalysisItems([], cached.visualAnalysis)
+    : [];
+  if (state.visualAnalysis.length) {
+    state.visualAnalysisStatus = uiText("visualStatusReady");
+  }
   setStatus(
     state.studyPack
       ? uiText("statusRestoredStudyPack")
@@ -1679,7 +1982,7 @@ async function hydrateVideoCache() {
   );
 }
 
-async function persistVideoCache() {
+async function persistVideoCache(options = {}) {
   if (!state.videoId || !state.studyPackFinal) {
     return;
   }
@@ -1696,12 +1999,15 @@ async function persistVideoCache() {
       durationSeconds: getVideoDurationSeconds(),
       studyPackCacheVersion: STUDY_PACK_CACHE_VERSION,
       transcript: state.transcript,
-      studyPack: state.studyPack
+      studyPack: state.studyPack,
+      visualAnalysis: state.visualAnalysis
     }
   });
   await saveLibraryIndexEntry(updatedAt);
   await pushRecentLecture(updatedAt);
-  await saveLectureCsv(updatedAt);
+  if (!options.skipCsv) {
+    await saveLectureCsv(updatedAt);
+  }
 }
 
 function getVideoCacheKey(videoId) {
@@ -1773,7 +2079,8 @@ function buildLibraryIndexEntry(updatedAt) {
     tags: [],
     conceptTerms: [],
     questionCount: 0,
-    searchText: buildLibrarySearchText(pack, state.transcript)
+    visualCount: state.visualAnalysis.length,
+    searchText: buildLibrarySearchText(pack, state.transcript, state.visualAnalysis)
   };
 }
 
@@ -1820,6 +2127,7 @@ function buildLectureCsvRecord(savedAt) {
     transcript_line_count: String(state.transcript.length),
     transcript_text: buildTranscriptText(state.transcript),
     transcript_json: JSON.stringify(state.transcript || []),
+    visual_analysis_json: JSON.stringify(state.visualAnalysis || []),
     summary: "",
     tags: "",
     tags_json: "[]",
@@ -1882,12 +2190,18 @@ function buildTranscriptText(transcript) {
     .join("\n");
 }
 
-function buildLibrarySearchText(pack, transcript) {
+function buildLibrarySearchText(pack, transcript, visualAnalysis = []) {
   const chunks = [
     pack.title,
     state.videoTitle,
     ...(pack.outline || []).flatMap((item) => [item.heading, ...(item.bullets || [])]),
-    ...(transcript || []).map((item) => item.text)
+    ...(transcript || []).map((item) => item.text),
+    ...(visualAnalysis || []).flatMap((item) => [
+      item.title,
+      item.relationToTranscript,
+      ...(item.bullets || []),
+      ...(item.visibleText || [])
+    ])
   ];
 
   return chunks
@@ -1917,6 +2231,9 @@ async function loadLibraryItem(videoId) {
   state.videoTitle = cached.videoTitle || cached.studyPack.title || state.videoTitle;
   state.transcript = Array.isArray(cached.transcript) ? cached.transcript : [];
   state.studyPack = cached.studyPack;
+  state.visualAnalysis = Array.isArray(cached.visualAnalysis)
+    ? mergeVisualAnalysisItems([], cached.visualAnalysis)
+    : [];
   state.studyPackFinal = true;
   state.activeTab = "outline";
   state.usedFallback = false;
@@ -1942,6 +2259,23 @@ function buildMarkdown(pack) {
       lines.push(`- ${bullet}`);
     }
     lines.push("");
+  }
+
+  if (state.visualAnalysis.length) {
+    lines.push(`## ${uiText("markdownVisual")}`, "");
+    for (const item of state.visualAnalysis) {
+      lines.push(`### ${item.timestamp} ${item.title || uiText("visualAnalysis")}`);
+      for (const bullet of item.bullets || []) {
+        lines.push(`- ${bullet}`);
+      }
+      if (item.visibleText?.length) {
+        lines.push(`- ${uiText("visualVisibleText")}：${item.visibleText.join("；")}`);
+      }
+      if (item.relationToTranscript) {
+        lines.push(`- ${uiText("visualRelation")}：${item.relationToTranscript}`);
+      }
+      lines.push("");
+    }
   }
 
   return lines.join("\n");
@@ -2085,12 +2419,16 @@ function getPanelMarkup() {
 
       <nav class="mit-study-tabs" aria-label="${escapeHtml(uiText("studyViews"))}">
         ${renderTabButton("outline", uiText("outline"))}
+        ${renderTabButton("visual", uiText("visual"))}
         ${renderTabButton("library", uiText("library"))}
       </nav>
 
       <main class="mit-study-content">
         <section class="mit-study-pane ${state.activeTab === "outline" ? "is-active" : ""}" data-pane="outline">
           ${renderOutline()}
+        </section>
+        <section class="mit-study-pane ${state.activeTab === "visual" ? "is-active" : ""}" data-pane="visual">
+          ${renderVisualAnalysis()}
         </section>
         <section class="mit-study-pane ${state.activeTab === "library" ? "is-active" : ""}" data-pane="library">
           ${renderLibrary()}
@@ -2274,6 +2612,7 @@ function renderLibraryResults(items, hasQuery) {
             </div>
           </div>
           <h3>${escapeHtml(item.videoTitle || item.videoId)}</h3>
+          ${item.visualCount ? `<div class="mit-study-library-meta"><span>${escapeHtml(uiText("visualAnalysis"))} ${item.visualCount}</span></div>` : ""}
         </article>
       `;
     })
@@ -2299,6 +2638,40 @@ function renderOutline() {
       `
     )
     .join("");
+}
+
+function renderVisualAnalysis() {
+  const statusClass = state.visualAnalysisError ? " mit-study-warning" : "";
+  const status = `
+    <section class="mit-study-visual-status${statusClass}">
+      ${escapeHtml(state.visualAnalysisStatus || uiText("visualStatusIdle"))}
+      ${state.visualAnalysisError ? `<small>${escapeHtml(state.visualAnalysisError)}</small>` : ""}
+    </section>
+  `;
+
+  if (!state.visualAnalysis.length) {
+    return `${status}${renderEmpty(uiText("emptyVisual"))}`;
+  }
+
+  return (
+    status +
+    state.visualAnalysis
+      .map(
+        (item) => `
+          <article class="mit-study-item mit-study-visual-item">
+            <div class="mit-study-item-topline">
+              <span class="mit-study-time">${escapeHtml(item.timestamp)}</span>
+              <button class="mit-study-link" data-action="jump" data-seconds="${item.seconds || 0}">${escapeHtml(uiText("jump"))}</button>
+            </div>
+            <h3>${escapeHtml(item.title || uiText("visualAnalysis"))}</h3>
+            ${item.bullets?.length ? `<ul>${item.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+            ${item.visibleText?.length ? `<p><strong>${escapeHtml(uiText("visualVisibleText"))}：</strong>${escapeHtml(item.visibleText.join("；"))}</p>` : ""}
+            ${item.relationToTranscript ? `<p><strong>${escapeHtml(uiText("visualRelation"))}：</strong>${escapeHtml(item.relationToTranscript)}</p>` : ""}
+          </article>
+        `
+      )
+      .join("")
+  );
 }
 
 function renderEmpty(message) {

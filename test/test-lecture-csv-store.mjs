@@ -16,6 +16,7 @@ async function testCsvRoundTrip() {
       tags: '操作系统; 指令集',
       tags_json: JSON.stringify([{ label: '含"引号"标签' }]),
       transcript_text: "第一行\n第二行",
+      visual_analysis_json: JSON.stringify([{ title: "PPT 画面" }]),
       outline_json: JSON.stringify([{ heading: '含"引号"' }])
     }
   ];
@@ -27,6 +28,7 @@ async function testCsvRoundTrip() {
   assert.equal(parsed[0].tags, "操作系统; 指令集");
   assert.equal(JSON.parse(parsed[0].tags_json)[0].label, '含"引号"标签');
   assert.equal(parsed[0].transcript_text, "第一行\n第二行");
+  assert.equal(JSON.parse(parsed[0].visual_analysis_json)[0].title, "PPT 画面");
   assert.equal(JSON.parse(parsed[0].outline_json)[0].heading, '含"引号"');
 }
 

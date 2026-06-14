@@ -10,6 +10,7 @@
     "128": "assets/icons/icon-128.png"
   },
   "permissions": [
+    "activeTab",
     "storage",
     "unlimitedStorage"
   ],

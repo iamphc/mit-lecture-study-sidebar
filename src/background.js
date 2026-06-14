@@ -71,6 +71,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "CAPTURE_VISIBLE_TAB") {
+    captureVisibleTab()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    return true;
+  }
+
+  if (message?.type === "RUN_DEEPSEEK_VISUAL_ANALYSIS") {
+    runDeepSeekVisualAnalysis(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    return true;
+  }
+
   if (message?.type === "SAVE_LECTURE_CSV") {
     saveLectureCsv(message.payload)
       .then((result) => sendResponse({ ok: true, result }))
@@ -100,6 +124,17 @@ async function saveLectureCsv(payload) {
     throw new Error(result?.error || `本地 CSV 服务保存失败，状态码 ${response.status}。`);
   }
   return result;
+}
+
+async function captureVisibleTab() {
+  const dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
+    format: "jpeg",
+    quality: 72
+  });
+  if (!dataUrl) {
+    throw new Error("没有截取到当前视频画面。");
+  }
+  return { dataUrl };
 }
 
 async function runDeepSeekAnalysis(payload, tabId) {
@@ -164,6 +199,22 @@ async function runDeepSeekAnalysis(payload, tabId) {
 
   sendAnalysisProgress(tabId, payload.videoId, 90, "大纲已覆盖全片，正在整理保存");
   return normalizeRemoteStudyPack(chinesePack, payload.transcript, payload.videoTitle);
+}
+
+async function runDeepSeekVisualAnalysis(payload) {
+  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  config.outputLanguage = "zh-CN";
+  if (!config.deepseekApiKey) {
+    throw new Error("缺少 DeepSeek API Key，请打开插件设置填写。");
+  }
+
+  const frame = payload?.frame;
+  if (!frame?.imageDataUrl) {
+    throw new Error("缺少可分析的视频画面。");
+  }
+
+  const result = await requestDeepSeekJson(buildDeepSeekVisualMessages(payload), config);
+  return normalizeVisualAnalysis(result, frame);
 }
 
 async function generateChunkStudyPack({ payload, config, chunk, index, total, tabId }) {
@@ -305,6 +356,76 @@ function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex
         `Transcript:\n${transcriptText}`
     }
   ];
+}
+
+function buildDeepSeekVisualMessages(payload) {
+  const frame = payload.frame || {};
+  const schemaExample = {
+    title: "画面中文标题",
+    visualType: "slides",
+    shouldKeep: true,
+    bullets: ["中文要点"],
+    visibleText: ["画面中的关键词"],
+    relationToTranscript: "这张画面和当前讲解的关系"
+  };
+
+  const contextText = (payload.transcriptContext || [])
+    .map((entry) => `[${formatTime(entry.startMs)}] ${entry.text}`)
+    .join("\n");
+
+  return [
+    {
+      role: "system",
+      content:
+        "You are an expert lecture visual-analysis assistant. Analyze lecture video frames that may contain slides, diagrams, equations, or board writing. " +
+        "Return valid json only. All user-facing fields must be Simplified Chinese. " +
+        "Keep the analysis separate from transcript outline content. Do not invent details that are not visible in the image."
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            `Analyze this video frame as a visual learning asset.\n` +
+            `Return strict json matching this shape exactly: ${JSON.stringify(schemaExample)}\n` +
+            `Rules:\n` +
+            `1. If the image is not a useful lecture slide/diagram/equation/board frame, set shouldKeep to false and keep bullets short.\n` +
+            `2. If useful, explain the visual content in Chinese and distinguish it from spoken transcript content.\n` +
+            `3. visibleText should list only important visible words, formulas, or labels from the frame.\n` +
+            `4. Use the transcript context only to clarify the frame, not as the source of visual facts.\n` +
+            `5. Video title: ${payload.videoTitle || ""}\n` +
+            `6. Frame timestamp: ${formatTime((frame.seconds || 0) * 1000)}\n\n` +
+            `Nearby transcript:\n${contextText || "-"}`
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: frame.imageDataUrl,
+            detail: "low"
+          }
+        }
+      ]
+    }
+  ];
+}
+
+function normalizeVisualAnalysis(result, frame) {
+  const shouldKeep = result?.shouldKeep !== false;
+  return {
+    timestamp: formatTime((frame.seconds || 0) * 1000),
+    seconds: Math.max(0, Math.round(Number(frame.seconds) || 0)),
+    title: String(result?.title || "画面内容").trim(),
+    visualType: String(result?.visualType || "visual").trim(),
+    shouldKeep,
+    bullets: Array.isArray(result?.bullets)
+      ? result.bullets.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6)
+      : [],
+    visibleText: Array.isArray(result?.visibleText)
+      ? result.visibleText.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
+      : [],
+    relationToTranscript: String(result?.relationToTranscript || "").trim()
+  };
 }
 
 async function ensureChineseOutline(payload, config, pack) {
