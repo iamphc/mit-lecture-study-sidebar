@@ -11,8 +11,10 @@
     "verify": "npm run check && npm run test",
     "csv-server": "node scripts/lecture-csv-server.mjs",
     "debug:youtube-transcript": "node scripts/debug-youtube-transcript.mjs",
-    "pack": "node scripts/package-extension.mjs",
-    "pack:zip": "node scripts/package-extension.mjs && cd dist && zip -qr mit-lecture-study-sidebar.zip mit-lecture-study-sidebar"
+    "icons": "node scripts/generate-icons.mjs",
+    "pack": "npm run icons && node scripts/package-extension.mjs",
+    "pack:zip": "npm run pack && cd dist && zip -qr mit-lecture-study-sidebar.zip mit-lecture-study-sidebar",
+    "pack:webstore": "npm run icons && node scripts/package-webstore.mjs"
   },
   "devDependencies": {
     "jsdom": "^24.1.0"

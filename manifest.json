@@ -3,6 +3,12 @@
   "name": "MIT 课程学习侧边栏",
   "version": "0.1.0",
   "description": "把 YouTube 课程视频整理成中文大纲并保存到本地资料库。",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
   "permissions": [
     "storage",
     "scripting",
@@ -36,6 +42,12 @@
   ],
   "action": {
     "default_title": "MIT 课程学习侧边栏",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    },
     "default_popup": "src/popup.html"
   },
   "web_accessible_resources": [
