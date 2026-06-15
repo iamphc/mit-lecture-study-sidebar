@@ -17,7 +17,7 @@ function buildMockChrome(syncOverrides = {}) {
   const { __uiLanguage: _ignoredUiLanguage, ...settingsOverrides } = syncOverrides;
   const syncStore = {
     autoAnalyze: false,
-    sidebarWidth: 420,
+    sidebarWidth: 760,
     deepseekApiKey: "mock-key",
     deepseekBaseUrl: "https://api.deepseek.com",
     deepseekModel: "deepseek-v4-flash",

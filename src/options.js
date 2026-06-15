@@ -1,6 +1,6 @@
 const DEFAULT_SETTINGS = {
   autoAnalyze: false,
-  sidebarWidth: 420,
+  sidebarWidth: 760,
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",

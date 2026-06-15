@@ -4,11 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sidebar Harness</title>
+    <link rel="stylesheet" href="../../src/sidebar.css?v=ui-redesign" />
     <script>
       window.__harnessLog = (message) => {
         const log = document.getElementById("harness-log");
         log.textContent += `${message}\n`;
       };
+      window.__MIT_STUDY_HARNESS_VIDEO_ID__ = "harness123";
       window.ytInitialPlayerResponse = {
         videoDetails: { title: "MIT Sidebar Harness Lecture" },
         captions: {
@@ -22,9 +24,8 @@
           }
         }
       };
-      history.replaceState({}, "", "https://www.youtube.com/watch?v=harness123");
     </script>
-    <script src="./mock-chrome.js"></script>
+    <script src="./mock-chrome.js?v=ui-redesign"></script>
     <style>
       body { margin: 0; background: #0f172a; color: white; font-family: sans-serif; }
       .page {
@@ -58,8 +59,8 @@
       <p>This harness page simulates a YouTube lecture watch page enough to exercise the sidebar.</p>
     </div>
     <pre id="harness-log"></pre>
-    <script src="../../src/i18n.js"></script>
-    <script src="../../src/transcript-utils-content.js"></script>
-    <script src="../../src/content.js"></script>
+    <script src="../../src/i18n.js?v=ui-redesign"></script>
+    <script src="../../src/transcript-utils-content.js?v=ui-redesign"></script>
+    <script src="../../src/content.js?v=ui-redesign"></script>
   </body>
 </html>

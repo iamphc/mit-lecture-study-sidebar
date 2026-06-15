@@ -15,7 +15,7 @@ const LOCAL_VISION_MODULE_PATH = "src/local-vision.js";
 const DEFAULT_VISUAL_SAMPLE_INTERVAL_SECONDS = 45;
 const DEFAULT_SETTINGS = {
   autoAnalyze: false,
-  sidebarWidth: 420,
+  sidebarWidth: 760,
   deepseekApiKey: "",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
@@ -852,6 +852,9 @@ async function syncVideoContext() {
 }
 
 function extractVideoId() {
+  if (typeof window.__MIT_STUDY_HARNESS_VIDEO_ID__ === "string") {
+    return window.__MIT_STUDY_HARNESS_VIDEO_ID__;
+  }
   try {
     return new URL(window.location.href).searchParams.get("v") || "";
   } catch (_error) {
@@ -2984,79 +2987,66 @@ function normalizeActiveTab() {
 }
 
 function getPanelMarkup() {
+  const closeLabel = state.sidebarOpen ? "×" : "≡";
   if (!state.videoId) {
     return `
       <button class="mit-study-reopen" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${escapeHtml(uiText("reopenOutline"))}</button>
-      <section class="mit-study-shell">
-        <header class="mit-study-header">
+      <section class="mit-study-shell mit-study-dashboard-shell">
+        <header class="mit-study-topbar">
           <div>
             <p class="mit-study-kicker">${escapeHtml(uiText("appShortName"))}</p>
             <h1>${escapeHtml(uiText("openLectureTitle"))}</h1>
           </div>
-          <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${state.sidebarOpen ? "×" : "≡"}</button>
+          <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${closeLabel}</button>
         </header>
-        <section class="mit-study-summary-card">
+        <section class="mit-study-panel mit-study-summary-card mit-study-empty-state-card">
           <span class="mit-study-label">${escapeHtml(uiText("readyState"))}</span>
           <p>${escapeHtml(uiText("readyCopy"))}</p>
-        </section>
-        <section class="mit-study-toolbar">
-          <button data-action="open-settings" class="mit-study-button">${escapeHtml(uiText("settings"))}</button>
+          <button data-action="open-settings" class="mit-study-button mit-study-button-primary">${escapeHtml(uiText("settings"))}</button>
         </section>
       </section>
     `;
   }
 
-  const closeLabel = state.sidebarOpen ? "×" : "≡";
   const isGeneratingStudyPack = state.isBusy && state.busyAction === "generate";
   const statusLabel = state.statusText || (state.studyPackFinal ? uiText("statusStudyPackReady") : "");
 
   return `
     <button class="mit-study-reopen" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${escapeHtml(uiText("reopenOutline"))}</button>
-    <section class="mit-study-shell">
-      <header class="mit-study-header">
+    <section class="mit-study-shell mit-study-dashboard-shell">
+      <header class="mit-study-topbar">
         <div>
           <p class="mit-study-kicker">${escapeHtml(uiText("appShortName"))}</p>
-          <h1>${escapeHtml(uiText("sidebarTitle"))}</h1>
+          <h1>${escapeHtml(uiText("courseSummary"))}</h1>
         </div>
-        <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${closeLabel}</button>
+        <div class="mit-study-topbar-actions">
+          <button data-action="generate" class="mit-study-button mit-study-button-primary ${isGeneratingStudyPack ? "is-loading" : ""}" ${state.isBusy ? "disabled" : ""}>${escapeHtml(isGeneratingStudyPack ? uiText("generating") : uiText("generateStudyPack"))}</button>
+          <button data-action="export-markdown" class="mit-study-button">${escapeHtml(uiText("exportMd"))}</button>
+          <button data-action="copy-pack" class="mit-study-button">${escapeHtml(uiText("copy"))}</button>
+          <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${closeLabel}</button>
+        </div>
       </header>
 
-      <section class="mit-study-toolbar">
-        <button data-action="generate" class="mit-study-button ${isGeneratingStudyPack ? "is-loading" : ""}" ${state.isBusy ? "disabled" : ""}>${escapeHtml(isGeneratingStudyPack ? uiText("generating") : uiText("generateStudyPack"))}</button>
-        <button data-action="export-markdown" class="mit-study-button">${escapeHtml(uiText("exportMd"))}</button>
-        <button data-action="copy-pack" class="mit-study-button">${escapeHtml(uiText("copy"))}</button>
-      </section>
-
-      <section class="mit-study-summary-card">
-        <div class="mit-study-compact-meta">
-          <strong data-slot="title">${escapeHtml(state.videoTitle || uiText("waitingForLecture"))}</strong>
-          <span class="${state.statusError ? "mit-study-warning" : ""}">${escapeHtml(statusLabel)}</span>
-        </div>
-        <p>${escapeHtml(getSummaryText())}</p>
+      <section class="mit-study-status-strip mit-study-summary-card ${state.statusError ? "has-error" : ""}">
+        <strong data-slot="title">${escapeHtml(state.videoTitle || uiText("waitingForLecture"))}</strong>
+        <p>${escapeHtml(statusLabel || getSummaryText())}</p>
         ${renderProgressBar()}
       </section>
 
-      <nav class="mit-study-tabs" aria-label="${escapeHtml(uiText("studyViews"))}">
-        ${renderTabButton("outline", uiText("outline"))}
-        ${renderTabButton("visual", uiText("visual"))}
-        ${renderTabButton("qa", uiText("qa"))}
-        ${renderTabButton("library", uiText("library"))}
-      </nav>
-
-      <main class="mit-study-content">
-        <section class="mit-study-pane ${state.activeTab === "outline" ? "is-active" : ""}" data-pane="outline">
-          ${renderOutline()}
+      <main class="mit-study-dashboard">
+        <section class="mit-study-left-column">
+          ${renderCourseSummaryPanel()}
+          ${renderQuestionPanel()}
+          ${renderHistoryPanel()}
         </section>
-        <section class="mit-study-pane ${state.activeTab === "visual" ? "is-active" : ""}" data-pane="visual">
-          ${renderVisualAnalysis()}
-        </section>
-        <section class="mit-study-pane ${state.activeTab === "qa" ? "is-active" : ""}" data-pane="qa">
-          ${renderQa()}
-        </section>
-        <section class="mit-study-pane ${state.activeTab === "library" ? "is-active" : ""}" data-pane="library">
-          ${renderLibrary()}
-        </section>
+        <aside class="mit-study-right-column">
+          ${renderCaptionTimeline()}
+          ${renderVisualTimeline()}
+        </aside>
       </main>
+
+      ${renderBottomDock()}
+      ${renderLegacyPanes()}
     </section>
   `;
 }
@@ -3072,6 +3062,260 @@ function getSummaryText() {
     return state.statusText || uiText("statusStudyPackReady");
   }
   return isAutoAnalyzeEnabled() ? uiText("summaryDefaultAuto") : uiText("summaryDefaultManual");
+}
+
+function renderCourseSummaryPanel() {
+  const outline = getOutlineItems();
+  const duration = getVideoDurationSeconds();
+  const facts = [
+    {
+      label: uiText("courseTitle"),
+      value: state.videoTitle || uiText("waitingForLecture")
+    },
+    {
+      label: uiText("courseSummary"),
+      value: getCourseDigestText(outline)
+    },
+    {
+      label: uiText("courseDuration"),
+      value: duration > 0 ? formatVideoSeconds(duration) : uiText("valueUnknown")
+    },
+    {
+      label: uiText("courseAssets"),
+      value: t("courseAssetsValue", {
+        outlineCount: outline.length,
+        visualCount: state.visualAnalysis.length,
+        qaCount: state.qaMessages.length
+      })
+    }
+  ];
+
+  return `
+    <section class="mit-study-panel mit-study-course-panel">
+      <div class="mit-study-panel-heading">
+        <span>${escapeHtml(uiText("courseSummary"))}</span>
+        <strong>${escapeHtml(state.isBusy ? uiText("regenerating") : state.studyPackFinal ? uiText("saved") : uiText("readyState"))}</strong>
+      </div>
+      <ol class="mit-study-course-facts">
+        ${facts
+          .map(
+            (fact, index) => `
+              <li>
+                <span class="mit-study-fact-index">${index + 1}</span>
+                <div>
+                  <small>${escapeHtml(fact.label)}</small>
+                  <p>${escapeHtml(fact.value)}</p>
+                </div>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    </section>
+  `;
+}
+
+function getOutlineItems() {
+  return Array.isArray(state.studyPack?.outline) ? state.studyPack.outline : [];
+}
+
+function getCourseDigestText(outline = getOutlineItems()) {
+  if (outline.length) {
+    return outline
+      .slice(0, 3)
+      .map((item) => item.heading || item.bullets?.[0] || "")
+      .filter(Boolean)
+      .join(activeUiLanguage === "zh-CN" ? "；" : "; ");
+  }
+  return getSummaryText();
+}
+
+function getVideoDurationSeconds() {
+  const video = document.querySelector("video");
+  if (!(video instanceof HTMLVideoElement)) {
+    return 0;
+  }
+  const duration = Number(video.duration);
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function renderQuestionPanel() {
+  return `
+    <section class="mit-study-panel mit-study-question-panel">
+      <div class="mit-study-panel-heading">
+        <span>${escapeHtml(uiText("questionZone"))}</span>
+        <strong>${escapeHtml(getQaStatusText())}</strong>
+      </div>
+      ${renderQaComposer()}
+    </section>
+  `;
+}
+
+function renderHistoryPanel() {
+  return `
+    <section class="mit-study-panel mit-study-history-panel">
+      <div class="mit-study-panel-heading">
+        <span>${escapeHtml(uiText("savedHistory"))}</span>
+        <strong>${escapeHtml(uiText("referenceLinks"))}</strong>
+      </div>
+      ${renderQaMessages()}
+      ${renderReferenceLinks()}
+      <details class="mit-study-library-drawer">
+        <summary>${escapeHtml(uiText("library"))}</summary>
+        ${renderLibrary()}
+      </details>
+    </section>
+  `;
+}
+
+function renderReferenceLinks() {
+  const sources = state.qaMessages
+    .flatMap((message) => (Array.isArray(message.sources) ? message.sources : []))
+    .filter((source) => source?.url || source?.title || source?.note)
+    .slice(0, 6);
+
+  if (!sources.length) {
+    return `<div class="mit-study-empty mit-study-empty-compact">${escapeHtml(uiText("qaEmpty"))}</div>`;
+  }
+
+  return `
+    <ul class="mit-study-reference-list" aria-label="${escapeHtml(uiText("referenceLinks"))}">
+      ${sources
+        .map((source) => {
+          const title = source.title || source.label || source.url || uiText("valueUnknown");
+          const href = String(source.url || "").trim();
+          return `
+            <li>
+              ${href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>` : `<span>${escapeHtml(title)}</span>`}
+              ${source.note ? `<small>${escapeHtml(source.note)}</small>` : ""}
+            </li>
+          `;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderCaptionTimeline() {
+  const outline = getOutlineItems();
+  return `
+    <section class="mit-study-panel mit-study-timeline-panel">
+      <div class="mit-study-panel-heading">
+        <span>${escapeHtml(uiText("captionTimeline"))}</span>
+        <strong>${escapeHtml(uiText("timelineJumpHint"))}</strong>
+      </div>
+      ${outline.length ? renderTimelineItems(outline) : renderEmpty(state.isBusy ? uiText("emptyOutlineGenerating") : isAutoAnalyzeEnabled() ? uiText("emptyOutline") : uiText("summaryDefaultManual"))}
+    </section>
+  `;
+}
+
+function renderTimelineItems(items) {
+  return `
+    <ol class="mit-study-timeline mit-study-caption-timeline">
+      ${items
+        .map(
+          (item) => `
+            <li>
+              <button class="mit-study-timeline-go" data-action="jump" data-seconds="${item.seconds || 0}" type="button">${escapeHtml(uiText("jump"))}</button>
+              <span class="mit-study-timeline-dot" aria-hidden="true"></span>
+              <div class="mit-study-timeline-content">
+                <button class="mit-study-time-link" data-action="jump" data-seconds="${item.seconds || 0}" type="button">${escapeHtml(item.timestamp || formatVideoSeconds(item.seconds || 0))}</button>
+                <h3>${escapeHtml(item.heading || uiText("outline"))}</h3>
+                ${item.bullets?.length ? `<p>${escapeHtml(item.bullets.slice(0, 2).join(activeUiLanguage === "zh-CN" ? "；" : "; "))}</p>` : ""}
+              </div>
+            </li>
+          `
+        )
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderVisualTimeline() {
+  const statusClass = state.visualAnalysisError ? " mit-study-warning" : "";
+  return `
+    <section class="mit-study-panel mit-study-timeline-panel mit-study-visual-timeline-panel">
+      <div class="mit-study-panel-heading">
+        <span>${escapeHtml(uiText("visualTimeline"))}</span>
+        <strong>${escapeHtml(isAutoAnalyzeEnabled() ? t("visualScanEverySeconds", { seconds: getVisualScanIntervalSeconds() }) : uiText("visualScanOff"))}</strong>
+      </div>
+      ${renderVisualScanPanel()}
+      <section class="mit-study-visual-status${statusClass}">
+        ${escapeHtml(state.visualAnalysisStatus || uiText("visualStatusIdle"))}
+        ${state.visualAnalysisError ? `<small>${escapeHtml(state.visualAnalysisError)}</small>` : ""}
+      </section>
+      ${state.visualAnalysis.length ? renderVisualTimelineItems(state.visualAnalysis) : renderEmpty(isAutoAnalyzeEnabled() ? uiText("emptyVisual") : uiText("emptyVisualManual"))}
+    </section>
+  `;
+}
+
+function renderVisualTimelineItems(items) {
+  return `
+    <ol class="mit-study-timeline mit-study-visual-timeline">
+      ${items
+        .map(
+          (item) => `
+            <li>
+              <button class="mit-study-timeline-go" data-action="jump" data-seconds="${item.seconds || 0}" type="button">${escapeHtml(uiText("jump"))}</button>
+              <span class="mit-study-timeline-dot" aria-hidden="true"></span>
+              <div class="mit-study-timeline-content mit-study-visual-timeline-content">
+                <div>
+                  <button class="mit-study-time-link" data-action="jump" data-seconds="${item.seconds || 0}" type="button">${escapeHtml(item.timestamp || formatVideoSeconds(item.seconds || 0))}</button>
+                  <span class="mit-study-visual-type">${escapeHtml(getVisualTypeLabel(item.visualType))}</span>
+                </div>
+                <h3>${escapeHtml(item.title || uiText("visualAnalysis"))}</h3>
+                ${renderVisualTimelinePreview(item)}
+                ${item.bullets?.length ? `<ul>${item.bullets.slice(0, 3).map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+                ${item.tags?.length ? `<p class="mit-study-mini-meta">${escapeHtml(joinLocalizedList(item.tags.slice(0, 5)))}</p>` : ""}
+                ${renderVisualRawText(item)}
+              </div>
+            </li>
+          `
+        )
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderVisualTimelinePreview(item) {
+  const src = item.framePreview || item.ocrRegionPreview || "";
+  if (!src) {
+    return `<div class="mit-study-visual-placeholder">${escapeHtml(uiText("visualFramePreview"))}</div>`;
+  }
+  return `
+    <figure class="mit-study-visual-thumb">
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(uiText("visualFramePreview"))}" loading="lazy" />
+    </figure>
+  `;
+}
+
+function renderBottomDock() {
+  const autoState = isAutoAnalyzeEnabled() ? uiText("summaryDefaultAuto") : uiText("summaryDefaultManual");
+  const localSaveState = state.localSaveDirectoryName ? t("directorySelected", { directoryName: state.localSaveDirectoryName }) : uiText("statusLocalSaveSkipped");
+  return `
+    <footer class="mit-study-bottom-dock">
+      <button data-action="open-settings" class="mit-study-button">${escapeHtml(uiText("settings"))}</button>
+      <span>${escapeHtml(autoState)}</span>
+      <span>${escapeHtml(localSaveState)}</span>
+    </footer>
+  `;
+}
+
+function renderLegacyPanes() {
+  return `
+    <nav class="mit-study-legacy-tabs" aria-hidden="true">
+      ${renderTabButton("outline", uiText("outline"))}
+      ${renderTabButton("visual", uiText("visual"))}
+      ${renderTabButton("qa", uiText("qa"))}
+      ${renderTabButton("library", uiText("library"))}
+    </nav>
+    <div class="mit-study-legacy-panes" aria-hidden="true">
+      <section data-pane="outline">${renderOutline()}</section>
+      <section data-pane="visual">${renderVisualAnalysis()}</section>
+      <section data-pane="qa">${renderQa()}</section>
+      <section data-pane="library">${renderLibrary()}</section>
+    </div>
+  `;
 }
 
 function renderProgressBar() {
@@ -3264,6 +3508,10 @@ function renderOutline() {
 }
 
 function renderQa() {
+  return `${renderQaComposer()}${renderQaMessages()}`;
+}
+
+function renderQaComposer() {
   const canAsk = Boolean(state.videoId && !state.qaInFlight && state.qaQuestion.trim());
   return `
     <section class="mit-study-qa-composer">
@@ -3278,7 +3526,6 @@ function renderQa() {
       </div>
       ${state.qaError ? `<p class="mit-study-warning">${escapeHtml(state.qaError)}</p>` : ""}
     </section>
-    ${renderQaMessages()}
   `;
 }
 

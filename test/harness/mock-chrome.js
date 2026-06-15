@@ -1,6 +1,6 @@
 const syncStore = {
-  autoAnalyze: false,
-  sidebarWidth: 420,
+  autoAnalyze: true,
+  sidebarWidth: 760,
   deepseekApiKey: "mock-key",
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
@@ -24,6 +24,9 @@ const localStore = {
 const syncListeners = [];
 
 function clone(value) {
+  if (value === undefined) {
+    return undefined;
+  }
   return JSON.parse(JSON.stringify(value));
 }
 
