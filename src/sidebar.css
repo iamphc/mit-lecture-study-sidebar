@@ -616,7 +616,7 @@
   list-style: none;
 }
 
-.mit-study-timeline li {
+.mit-study-timeline > li {
   position: relative;
   display: grid;
   grid-template-columns: 42px 18px minmax(0, 1fr);
@@ -626,7 +626,7 @@
   padding: 0 0 18px;
 }
 
-.mit-study-timeline li::before {
+.mit-study-timeline > li::before {
   content: "";
   position: absolute;
   top: 8px;
@@ -637,11 +637,11 @@
   background: rgba(29, 36, 31, 0.18);
 }
 
-.mit-study-timeline li:last-child {
+.mit-study-timeline > li:last-child {
   padding-bottom: 0;
 }
 
-.mit-study-timeline li:last-child::before {
+.mit-study-timeline > li:last-child::before {
   display: none;
 }
 
@@ -704,6 +704,19 @@
   color: var(--mit-study-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.mit-study-timeline-content ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.mit-study-timeline-content li {
+  display: list-item;
+  min-width: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .mit-study-visual-timeline-content > div:first-child {
@@ -894,7 +907,7 @@
 .mit-study-debug-block pre {
   box-sizing: border-box;
   max-width: 100%;
-  max-height: 180px;
+  max-height: 120px;
   margin: 8px 0 0;
   padding: 10px;
   overflow: auto;
@@ -904,7 +917,8 @@
   font-size: 11px;
   line-height: 1.45;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .mit-study-qa-sources ul {
@@ -1045,11 +1059,11 @@
     padding: 12px;
   }
 
-  .mit-study-timeline li {
+  .mit-study-timeline > li {
     grid-template-columns: 36px 16px minmax(0, 1fr);
   }
 
-  .mit-study-timeline li::before {
+  .mit-study-timeline > li::before {
     left: 45px;
   }
 

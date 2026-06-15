@@ -1,6 +1,6 @@
 {
   "name": "mit-lecture-study-sidebar",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Chrome extension for turning MIT YouTube lecture content into progressive study outlines with DeepSeek.",
   "license": "MIT",
