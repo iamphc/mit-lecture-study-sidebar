@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "MIT Lecture Study Sidebar"
+  },
+  "appDescription": {
+    "message": "Turn YouTube lecture videos into study outlines and save them to a local library."
+  },
+  "appActionTitle": {
+    "message": "MIT Lecture Study Sidebar"
+  }
+}

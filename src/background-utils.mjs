@@ -81,19 +81,19 @@ export function normalizeRemoteStudyPack(pack, transcript, videoTitle) {
   };
 }
 
-export function normalizeVisualTextAnalysisResult(result, extraction = {}, videoTitle = "") {
+export function normalizeVisualTextAnalysisResult(result, extraction = {}, videoTitle = "", language = "zh-CN") {
   const seconds = Number(extraction.seconds);
   const normalizedSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
   const visibleText = Array.isArray(extraction.visibleText)
     ? extraction.visibleText.map((text) => String(text || "").trim()).filter(Boolean)
     : [];
   const visualType = normalizeVisualType(result?.visualType || extraction.visualType || extraction.keyFrame?.visualType);
-  const visualTypeLabel = getVisualTypeLabel(visualType);
+  const visualTypeLabel = getVisualTypeLabel(visualType, language);
 
   return {
     timestamp: extraction.timestamp || formatTime(normalizedSeconds * 1000),
     seconds: normalizedSeconds,
-    title: String(result?.title || visibleText[0] || videoTitle || `${visualTypeLabel}关键画面`).trim(),
+    title: String(result?.title || visibleText[0] || videoTitle || fallbackVisualTitle(visualTypeLabel, language)).trim(),
     visualType,
     shouldKeep: true,
     bullets: Array.isArray(result?.bullets)
@@ -125,21 +125,30 @@ function normalizeVisualType(value) {
   return "visual";
 }
 
-function getVisualTypeLabel(value) {
+function normalizeLanguage(value) {
+  return String(value || "").toLowerCase().startsWith("en") ? "en" : "zh-CN";
+}
+
+function fallbackVisualTitle(visualTypeLabel, language = "zh-CN") {
+  return normalizeLanguage(language) === "en" ? `${visualTypeLabel} key frame` : `${visualTypeLabel}关键画面`;
+}
+
+function getVisualTypeLabel(value, language = "zh-CN") {
+  const locale = normalizeLanguage(language);
   const visualType = normalizeVisualType(value);
   if (visualType === "ppt") {
-    return "PPT";
+    return locale === "en" ? "Slide" : "PPT";
   }
   if (visualType === "blackboard") {
-    return "板书";
+    return locale === "en" ? "Blackboard" : "板书";
   }
   if (visualType === "whiteboard") {
-    return "白板";
+    return locale === "en" ? "Whiteboard" : "白板";
   }
   if (visualType === "screen") {
-    return "屏幕";
+    return locale === "en" ? "Screen" : "屏幕";
   }
-  return "画面";
+  return locale === "en" ? "Visual" : "画面";
 }
 
 export function mergePartialStudyPacks(partialPacks, videoTitle) {

@@ -11,12 +11,14 @@ const packageDir = path.join(distDir, "mit-lecture-study-sidebar");
 async function main() {
   await ensureExists(path.join(rootDir, "manifest.json"));
   await ensureExists(path.join(rootDir, "src"));
+  await ensureExists(path.join(rootDir, "_locales"));
 
   await rm(distDir, { recursive: true, force: true });
   await mkdir(packageDir, { recursive: true });
 
   await cp(path.join(rootDir, "manifest.json"), path.join(packageDir, "manifest.json"));
   await cp(path.join(rootDir, "src"), path.join(packageDir, "src"), { recursive: true });
+  await cp(path.join(rootDir, "_locales"), path.join(packageDir, "_locales"), { recursive: true });
   await cp(path.join(rootDir, "test", "harness"), path.join(packageDir, "test", "harness"), {
     recursive: true
   });

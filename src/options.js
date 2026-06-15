@@ -5,9 +5,16 @@ const DEFAULT_SETTINGS = {
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
   visualScanIntervalSeconds: 45,
-  outputLanguage: "zh-CN",
+  uiLanguage: "auto",
+  outputLanguage: "auto",
   noteTone: "study-handout"
 };
+
+const {
+  createTranslator,
+  resolveUiLanguage,
+  normalizeLanguage
+} = globalThis.MitStudyI18n;
 
 const form = document.getElementById("settings-form");
 const statusNode = document.getElementById("settings-status");
@@ -15,13 +22,17 @@ const testButton = document.getElementById("test-connection");
 const chooseDirectoryButton = document.getElementById("choose-save-directory");
 const clearDirectoryButton = document.getElementById("clear-save-directory");
 const saveDirectoryStatus = document.getElementById("save-directory-status");
+let currentSettings = { ...DEFAULT_SETTINGS };
+let currentLanguage = resolveUiLanguage(currentSettings);
+let t = createTranslator(currentLanguage);
 
 void init();
 
 async function init() {
   const values = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   const settings = normalizeSettings(values);
-  await chrome.storage.sync.set({ outputLanguage: "zh-CN" });
+  currentSettings = settings;
+  applyLocale(settings);
   const localValues = await chrome.storage.local.get(["localSaveDirectoryName", "localSaveDirectoryConfiguredAt"]);
 
   for (const [key, value] of Object.entries(settings)) {
@@ -39,6 +50,15 @@ async function init() {
   await updateLocalDirectoryFields(localValues.localSaveDirectoryName || "");
 }
 
+form.elements.namedItem("uiLanguage")?.addEventListener("change", () => {
+  currentSettings = {
+    ...currentSettings,
+    uiLanguage: String(form.elements.namedItem("uiLanguage")?.value || DEFAULT_SETTINGS.uiLanguage)
+  };
+  applyLocale(currentSettings);
+  void updateLocalDirectoryFields(String(form.elements.namedItem("localSaveDirectoryName")?.value || ""));
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -49,13 +69,16 @@ form.addEventListener("submit", async (event) => {
     deepseekBaseUrl: String(formData.get("deepseekBaseUrl") || DEFAULT_SETTINGS.deepseekBaseUrl),
     deepseekModel: String(formData.get("deepseekModel") || DEFAULT_SETTINGS.deepseekModel),
     visualScanIntervalSeconds: normalizeVisualScanInterval(formData.get("visualScanIntervalSeconds")),
-    outputLanguage: "zh-CN",
+    uiLanguage: normalizeLanguageSetting(formData.get("uiLanguage"), DEFAULT_SETTINGS.uiLanguage),
+    outputLanguage: normalizeOutputLanguage(formData.get("outputLanguage")),
     noteTone: String(formData.get("noteTone") || DEFAULT_SETTINGS.noteTone),
     sidebarWidth: Number(formData.get("sidebarWidth") || DEFAULT_SETTINGS.sidebarWidth)
   };
 
   await chrome.storage.sync.set(payload);
-  statusNode.textContent = "已保存";
+  currentSettings = normalizeSettings(payload);
+  applyLocale(currentSettings);
+  statusNode.textContent = t("settingsSaved");
   window.setTimeout(() => {
     statusNode.textContent = "";
   }, 1800);
@@ -63,12 +86,12 @@ form.addEventListener("submit", async (event) => {
 
 chooseDirectoryButton.addEventListener("click", async () => {
   if (typeof window.showDirectoryPicker !== "function") {
-    saveDirectoryStatus.textContent = "当前浏览器不支持目录选择，请使用新版 Chrome。";
+    saveDirectoryStatus.textContent = t("directoryPickerUnsupported");
     return;
   }
 
   try {
-    saveDirectoryStatus.textContent = "正在打开目录选择器...";
+    saveDirectoryStatus.textContent = t("directoryPickerOpening");
     const handle = await window.showDirectoryPicker({
       id: "mit-lecture-study-save-directory",
       mode: "readwrite"
@@ -76,22 +99,24 @@ chooseDirectoryButton.addEventListener("click", async () => {
     const directoryApi = await loadLocalSaveDirectoryApi();
     const permission = await directoryApi.requestLocalSaveDirectoryPermission(handle);
     if (permission !== "granted") {
-      saveDirectoryStatus.textContent = "目录没有写入权限，请重新选择并允许写入。";
+      saveDirectoryStatus.textContent = t("directoryPermissionDenied");
       return;
     }
 
     await directoryApi.setLocalSaveDirectoryHandle(handle);
     await chrome.storage.local.set({
-      localSaveDirectoryName: handle.name || "已选择目录",
+      localSaveDirectoryName: handle.name || t("directorySelectedFallback"),
       localSaveDirectoryConfiguredAt: new Date().toISOString()
     });
-    await updateLocalDirectoryFields(handle.name || "已选择目录");
+    await updateLocalDirectoryFields(handle.name || t("directorySelectedFallback"));
   } catch (error) {
     if (error?.name === "AbortError") {
-      saveDirectoryStatus.textContent = "已取消选择目录。";
+      saveDirectoryStatus.textContent = t("directoryPickCanceled");
       return;
     }
-    saveDirectoryStatus.textContent = `选择目录失败：${error instanceof Error ? error.message : String(error)}`;
+    saveDirectoryStatus.textContent = t("directoryPickFailed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
@@ -103,16 +128,18 @@ clearDirectoryButton.addEventListener("click", async () => {
 });
 
 testButton.addEventListener("click", async () => {
-  statusNode.textContent = "正在测试...";
+  statusNode.textContent = t("testingConnection");
   await saveCurrentForm();
 
   try {
     const response = await chrome.runtime.sendMessage({ type: "TEST_DEEPSEEK_CONNECTION" });
     statusNode.textContent = response?.ok
-      ? `连接成功：${response.result.model}`
-      : `连接失败：${response?.error || "未知错误"}`;
+      ? t("connectionSuccess", { model: response.result.model })
+      : t("connectionFailed", { message: response?.error || t("unknownError") });
   } catch (error) {
-    statusNode.textContent = `连接失败：${error instanceof Error ? error.message : String(error)}`;
+    statusNode.textContent = t("connectionFailed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
@@ -124,7 +151,8 @@ async function saveCurrentForm() {
     deepseekBaseUrl: String(formData.get("deepseekBaseUrl") || DEFAULT_SETTINGS.deepseekBaseUrl),
     deepseekModel: String(formData.get("deepseekModel") || DEFAULT_SETTINGS.deepseekModel),
     visualScanIntervalSeconds: normalizeVisualScanInterval(formData.get("visualScanIntervalSeconds")),
-    outputLanguage: "zh-CN",
+    uiLanguage: normalizeLanguageSetting(formData.get("uiLanguage"), DEFAULT_SETTINGS.uiLanguage),
+    outputLanguage: normalizeOutputLanguage(formData.get("outputLanguage")),
     noteTone: String(formData.get("noteTone") || DEFAULT_SETTINGS.noteTone),
     sidebarWidth: Number(formData.get("sidebarWidth") || DEFAULT_SETTINGS.sidebarWidth)
   };
@@ -138,10 +166,33 @@ function normalizeSettings(stored = {}) {
     ...stored,
     autoAnalyze: Boolean(stored.autoAnalyze),
     visualScanIntervalSeconds: normalizeVisualScanInterval(stored.visualScanIntervalSeconds),
-    outputLanguage: "zh-CN"
+    uiLanguage: normalizeLanguageSetting(stored.uiLanguage, DEFAULT_SETTINGS.uiLanguage),
+    outputLanguage: normalizeOutputLanguage(stored.outputLanguage)
   };
 
   return settings;
+}
+
+function normalizeLanguageSetting(value, fallback = "auto") {
+  const text = String(value || fallback);
+  return text === "auto" ? "auto" : normalizeLanguage(text);
+}
+
+function normalizeOutputLanguage(value) {
+  return normalizeLanguageSetting(value, DEFAULT_SETTINGS.outputLanguage);
+}
+
+function applyLocale(settings) {
+  currentLanguage = resolveUiLanguage(settings);
+  t = createTranslator(currentLanguage);
+  document.documentElement.lang = currentLanguage === "zh-CN" ? "zh-CN" : "en";
+  document.title = t("optionsTitle");
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder));
+  });
 }
 
 function normalizeVisualScanInterval(value) {
@@ -159,11 +210,11 @@ async function updateLocalDirectoryFields(directoryName) {
   }
 
   if (!directoryName) {
-    saveDirectoryStatus.textContent = "还没有选择目录";
+    saveDirectoryStatus.textContent = t("directoryNotSelected");
     return;
   }
 
-  saveDirectoryStatus.textContent = `已选择：${directoryName}`;
+  saveDirectoryStatus.textContent = t("directorySelected", { directoryName });
   if (typeof window.showDirectoryPicker !== "function") {
     return;
   }
@@ -174,7 +225,7 @@ async function updateLocalDirectoryFields(directoryName) {
       await directoryApi.getLocalSaveDirectoryHandle()
     );
     if (handlePermission && handlePermission !== "granted") {
-      saveDirectoryStatus.textContent = `已选择：${directoryName}，但权限需要重新授权`;
+      saveDirectoryStatus.textContent = t("directoryReauthNeeded", { directoryName });
     }
   } catch (_error) {
     // 状态提示不应阻断设置页加载。

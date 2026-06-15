@@ -8,6 +8,7 @@ import {
   normalizeVisualTextAnalysisResult,
   safeParseModelJson
 } from "./background-utils.mjs";
+import "./i18n.js";
 import {
   getLocalSaveDirectoryHandle,
   queryLocalSaveDirectoryPermission
@@ -28,14 +29,63 @@ const DEFAULT_SETTINGS = {
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
   visualScanIntervalSeconds: 45,
-  outputLanguage: "zh-CN",
+  uiLanguage: "auto",
+  outputLanguage: "auto",
   noteTone: "study-handout"
 };
+
+const {
+  createTranslator,
+  normalizeLanguage,
+  resolveOutputLanguage,
+  resolveUiLanguage
+} = globalThis.MitStudyI18n;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   await chrome.storage.sync.set(normalizeSettings(current));
+  await injectIntoOpenYouTubeTabs();
 });
+
+async function injectIntoOpenYouTubeTabs() {
+  if (typeof chrome?.tabs?.query !== "function" || typeof chrome?.scripting?.executeScript !== "function") {
+    return;
+  }
+
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
+  } catch (error) {
+    console.warn("[MIT Study] query-open-youtube-tabs-failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
+
+  await Promise.all(
+    tabs
+      .filter((tab) => Number.isInteger(tab?.id))
+      .map(async (tab) => {
+        try {
+          if (typeof chrome.scripting.insertCSS === "function") {
+            await chrome.scripting.insertCSS({
+              target: { tabId: tab.id },
+              files: ["src/sidebar.css"]
+            });
+          }
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["src/i18n.js", "src/transcript-utils-content.js", "src/content.js"]
+          });
+        } catch (error) {
+          console.warn("[MIT Study] inject-open-youtube-tab-failed", {
+            tabId: tab.id,
+            message: error instanceof Error ? error.message : String(error)
+          });
+        }
+      })
+  );
+}
 
 function normalizeSettings(stored = {}) {
   const settings = {
@@ -43,10 +93,27 @@ function normalizeSettings(stored = {}) {
     ...stored,
     autoAnalyze: Boolean(stored.autoAnalyze),
     visualScanIntervalSeconds: normalizeVisualScanInterval(stored.visualScanIntervalSeconds),
-    outputLanguage: "zh-CN"
+    uiLanguage: normalizeLanguageSetting(stored.uiLanguage, DEFAULT_SETTINGS.uiLanguage),
+    outputLanguage: normalizeLanguageSetting(stored.outputLanguage, DEFAULT_SETTINGS.outputLanguage)
   };
 
   return settings;
+}
+
+function normalizeLanguageSetting(value, fallback = "auto") {
+  const text = String(value || fallback);
+  return text === "auto" ? "auto" : normalizeLanguage(text);
+}
+
+function normalizeDeepSeekConfig(stored = {}, payloadSettings = {}) {
+  const config = normalizeSettings({
+    ...stored,
+    ...payloadSettings
+  });
+  config.uiLanguage = resolveUiLanguage(config);
+  config.outputLanguage = resolveOutputLanguage(config);
+  config.t = createTranslator(config.outputLanguage);
+  return config;
 }
 
 function normalizeVisualScanInterval(value) {
@@ -106,6 +173,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "RUN_DEEPSEEK_QA") {
+    runDeepSeekQa(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      );
+    return true;
+  }
+
   if (message?.type === "CAPTURE_VISIBLE_TAB") {
     captureVisibleTab()
       .then((result) => sendResponse({ ok: true, result }))
@@ -134,14 +213,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function saveLectureLocal(payload) {
+  const t = createTranslator(resolveUiLanguage(payload?.settings || {}));
   const directoryHandle = await getLocalSaveDirectoryHandle();
   if (!directoryHandle) {
-    throw new Error("还没有选择本地保存目录，请到设置里点击“选择目录”。");
+    throw new Error(t("errorLocalSaveDirectoryMissing"));
   }
 
   const permission = await queryLocalSaveDirectoryPermission(directoryHandle);
   if (permission !== "granted") {
-    throw new Error("本地保存目录权限已失效，请到设置里重新选择目录。");
+    throw new Error(t("errorLocalSaveDirectoryPermission"));
   }
 
   const prepared = prepareLocalLectureRecord(payload);
@@ -159,8 +239,8 @@ async function saveLectureLocal(payload) {
 
   return {
     directoryName: directoryHandle.name || "",
-    csvPath: `${directoryHandle.name || "所选目录"}/${LECTURE_LIBRARY_CSV_FILE}`,
-    lecturePath: `${directoryHandle.name || "所选目录"}/${LECTURE_FILES_DIR}/${files.folderName}`,
+    csvPath: `${directoryHandle.name || t("errorSelectedDirectory")}/${LECTURE_LIBRARY_CSV_FILE}`,
+    lecturePath: `${directoryHandle.name || t("errorSelectedDirectory")}/${LECTURE_FILES_DIR}/${files.folderName}`,
     imageCount: prepared.imageAssets.length,
     rowCount,
     videoId: payload?.video_id || payload?.videoId || ""
@@ -209,7 +289,7 @@ async function writeBlobFile(fileHandle, blob) {
 function dataUrlToBlob(dataUrl, fallbackMimeType = "application/octet-stream") {
   const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    throw new Error("图片数据格式无效，无法写入本地文件。");
+    throw new Error(createTranslator("zh-CN")("errorInvalidImageData"));
   }
 
   const mimeType = match[1] || fallbackMimeType;
@@ -227,21 +307,22 @@ async function captureVisibleTab() {
     quality: 72
   });
   if (!dataUrl) {
-    throw new Error("没有截取到当前视频画面。");
+    throw new Error(createTranslator("zh-CN")("errorNoVisibleTabFrame"));
   }
   return { dataUrl };
 }
 
 async function runDeepSeekAnalysis(payload, tabId) {
-  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  config.outputLanguage = "zh-CN";
+  const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const config = normalizeDeepSeekConfig(stored, payload?.settings);
+  const t = config.t;
   if (!config.deepseekApiKey) {
-    throw new Error("缺少 DeepSeek API Key，请打开插件设置填写。");
+    throw new Error(t("errorMissingApiKey"));
   }
 
   const transcriptChunks = chunkTranscript(payload.transcript, 14000);
   const partialPacks = [];
-  sendAnalysisProgress(tabId, payload.videoId, 42, "DeepSeek 正在准备分段分析");
+  sendAnalysisProgress(tabId, payload.videoId, 42, t("progressDeepSeekPreparing"));
 
   for (let index = 0; index < transcriptChunks.length; index += 1) {
     const chunk = transcriptChunks[index];
@@ -249,7 +330,7 @@ async function runDeepSeekAnalysis(payload, tabId) {
       tabId,
       payload.videoId,
       estimateChunkProgress(index, transcriptChunks.length),
-      `DeepSeek 正在分析第 ${index + 1}/${transcriptChunks.length} 段`
+      t("progressDeepSeekChunk", { current: index + 1, total: transcriptChunks.length })
     );
     const chunkResult = await generateChunkStudyPack({
       payload,
@@ -264,7 +345,7 @@ async function runDeepSeekAnalysis(payload, tabId) {
         tabId,
         payload.videoId,
         estimateChunkProgress(index + 1, transcriptChunks.length),
-        `第 ${index + 1}/${transcriptChunks.length} 段模型输出异常，已跳过并继续`
+        t("progressDeepSeekChunkSkipped", { current: index + 1, total: transcriptChunks.length })
       );
       continue;
     }
@@ -273,7 +354,7 @@ async function runDeepSeekAnalysis(payload, tabId) {
       tabId,
       payload.videoId,
       estimateChunkProgress(index + 1, transcriptChunks.length),
-      `已生成第 ${index + 1}/${transcriptChunks.length} 段大纲`,
+      t("progressDeepSeekChunkReady", { current: index + 1, total: transcriptChunks.length }),
       {
         partialPack: buildPartialProgressPack(chunkResult, payload.videoTitle),
         partialIndex: index + 1,
@@ -283,17 +364,17 @@ async function runDeepSeekAnalysis(payload, tabId) {
   }
 
   if (!partialPacks.length) {
-    throw new Error("模型连续返回异常格式，没有生成出可用大纲。");
+    throw new Error(t("errorNoUsableOutline"));
   }
 
   const finalPack =
     partialPacks.length === 1
       ? partialPacks[0]
       : mergePartialStudyPacks(partialPacks, payload.videoTitle);
-  const chinesePack = await ensureChineseOutline(payload, config, finalPack);
+  const localizedPack = await ensureOutputLanguageOutline(payload, config, finalPack);
 
-  sendAnalysisProgress(tabId, payload.videoId, 90, "大纲已覆盖全片，正在整理保存");
-  return normalizeRemoteStudyPack(chinesePack, payload.transcript, payload.videoTitle);
+  sendAnalysisProgress(tabId, payload.videoId, 90, t("progressDeepSeekFinalizing"));
+  return normalizeRemoteStudyPack(localizedPack, payload.transcript, payload.videoTitle);
 }
 
 async function generateChunkStudyPack({ payload, config, chunk, index, total, tabId }) {
@@ -302,7 +383,7 @@ async function generateChunkStudyPack({ payload, config, chunk, index, total, ta
       buildDeepSeekChunkMessages(payload, config, chunk, index, total),
       config
     );
-    return ensureChineseOutline(payload, config, rawChunkResult);
+    return ensureOutputLanguageOutline(payload, config, rawChunkResult);
   } catch (error) {
     if (!(error instanceof ModelJsonParseError)) {
       throw error;
@@ -312,11 +393,11 @@ async function generateChunkStudyPack({ payload, config, chunk, index, total, ta
       tabId,
       payload.videoId,
       estimateChunkProgress(index, total),
-      `第 ${index + 1}/${total} 段返回格式异常，正在自动修复`
+      config.t("progressDeepSeekChunkRepairing", { current: index + 1, total })
     );
     try {
       const repaired = await repairDeepSeekJson(error.rawText, config);
-      return ensureChineseOutline(payload, config, repaired);
+      return ensureOutputLanguageOutline(payload, config, repaired);
     } catch (repairError) {
       console.warn("[MIT Study] deepseek-json-repair-failed", {
         chunk: index + 1,
@@ -364,10 +445,10 @@ function sendAnalysisProgress(tabId, videoId, percent, label, extra = {}) {
 }
 
 async function testDeepSeekConnection() {
-  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  config.outputLanguage = "zh-CN";
+  const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const config = normalizeDeepSeekConfig(stored);
   if (!config.deepseekApiKey) {
-    throw new Error("缺少 DeepSeek API Key。");
+    throw new Error(config.t("errorMissingApiKeyShort"));
   }
 
   const result = await requestDeepSeekJson(
@@ -388,19 +469,20 @@ async function testDeepSeekConnection() {
   return {
     status: result.status || "ok",
     model: config.deepseekModel,
-    message: result.message || "DeepSeek 连接成功。"
+    message: result.message || config.t("connectionSuccess", { model: config.deepseekModel })
   };
 }
 
 function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex, chunkCount) {
+  const t = config.t;
   const schemaExample = {
-    title: "课程中文标题",
+    title: t("promptTitleExample"),
     outline: [
       {
-        heading: "中文小节标题",
+        heading: t("promptHeadingExample"),
         timestamp: "00:00",
         seconds: 0,
-        bullets: ["中文要点"]
+        bullets: [t("promptBulletExample")]
       }
     ]
   };
@@ -416,8 +498,7 @@ function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex
         "You are an expert lecture-study assistant. The user needs a study sidebar for MIT YouTube lectures. " +
         "Use the original English transcript as the primary source. Output valid json only. " +
         "Produce only a compact but useful lecture outline. Do not generate notes, concepts, tags, questions, quizzes, or summaries. " +
-        "All user-facing fields must be written in Simplified Chinese. Translate and explain the English transcript in Chinese. " +
-        "Do not copy English transcript phrases as headings or bullets unless the phrase is a necessary technical term."
+        t("promptOutputLanguageInstruction")
     },
     {
       role: "user",
@@ -426,40 +507,41 @@ function buildDeepSeekChunkMessages(payload, config, transcriptChunk, chunkIndex
         `Requirements:\n` +
         `1. Keep the transcript as the source of truth and do not invent specific claims not supported by it.\n` +
         `2. Only generate outline sections with timestamp, seconds, heading, and bullets.\n` +
-        `3. heading and bullets must be Simplified Chinese. Do not leave English sentences like "Introduction and Course Overview".\n` +
+        `3. ${t("promptHeadingBulletsInstruction")}\n` +
         `4. Return strict json matching this shape exactly: ${JSON.stringify(schemaExample)}\n` +
         `5. The word json must be honored: return json only.\n` +
         `6. Video title: ${payload.videoTitle}\n` +
         `7. This is chunk ${chunkIndex + 1} of ${chunkCount}. Keep timestamps from this chunk and do not claim to summarize the whole lecture.\n` +
-        `8. Output language: 简体中文。Technical names may stay in English only inside Chinese explanations.\n\n` +
+        `8. Output language: ${t("promptOutputLanguageLine")}\n\n` +
         `Transcript:\n${transcriptText}`
     }
   ];
 }
 
-async function ensureChineseOutline(payload, config, pack) {
-  if (!hasMostlyEnglishOutline(pack)) {
+async function ensureOutputLanguageOutline(payload, config, pack) {
+  if (config.outputLanguage !== "zh-CN" || !hasMostlyEnglishOutline(pack)) {
     return pack;
   }
 
-  return requestDeepSeekJson(buildDeepSeekChineseRewriteMessages(payload, pack), config);
+  return requestDeepSeekJson(buildDeepSeekRewriteMessages(payload, config, pack), config);
 }
 
 async function repairDeepSeekJson(rawText, config) {
-  return requestDeepSeekJson(buildDeepSeekJsonRepairMessages(rawText), config, {
+  return requestDeepSeekJson(buildDeepSeekJsonRepairMessages(rawText, config), config, {
     allowRepair: false
   });
 }
 
-function buildDeepSeekJsonRepairMessages(rawText) {
+function buildDeepSeekJsonRepairMessages(rawText, config = normalizeDeepSeekConfig()) {
+  const t = config.t;
   const schemaExample = {
-    title: "课程中文标题",
+    title: t("promptTitleExample"),
     outline: [
       {
-        heading: "中文小节标题",
+        heading: t("promptHeadingExample"),
         timestamp: "00:00",
         seconds: 0,
-        bullets: ["中文要点"]
+        bullets: [t("promptBulletExample")]
       }
     ]
   };
@@ -469,7 +551,7 @@ function buildDeepSeekJsonRepairMessages(rawText) {
       role: "system",
       content:
         "You repair malformed JSON from a lecture outline generator. Output valid JSON only. " +
-        "Do not add new facts. Preserve the original Chinese content as much as possible."
+        `Do not add new facts. ${t("promptRepairPreserve")}`
     },
     {
       role: "user",
@@ -485,24 +567,22 @@ function buildDeepSeekJsonRepairMessages(rawText) {
   ];
 }
 
-function buildDeepSeekChineseRewriteMessages(payload, pack) {
+function buildDeepSeekRewriteMessages(payload, config, pack) {
+  const t = config.t;
   const schemaExample = {
-    title: "课程中文标题",
-    outline: [{ heading: "中文小节标题", timestamp: "00:00", seconds: 0, bullets: ["中文要点"] }]
+    title: t("promptTitleExample"),
+    outline: [{ heading: t("promptHeadingExample"), timestamp: "00:00", seconds: 0, bullets: [t("promptBulletExample")] }]
   };
 
   return [
     {
       role: "system",
-      content:
-        "You rewrite lecture outlines into Simplified Chinese. Output valid json only. " +
-        "Keep timestamps and seconds unchanged. Translate headings and bullets into natural Chinese. " +
-        "Only keep English for unavoidable technical names."
+      content: t("promptRewriteSystem")
     },
     {
       role: "user",
       content:
-        `Rewrite this outline into Simplified Chinese.\n` +
+        `${t("promptRewriteUser")}\n` +
         `Return strict json matching this shape exactly: ${JSON.stringify(schemaExample)}\n` +
         `Do not add notes, concepts, tags, questions, quizzes, or summaries.\n` +
         `Video title: ${payload.videoTitle}\n\n` +
@@ -512,42 +592,313 @@ function buildDeepSeekChineseRewriteMessages(payload, pack) {
 }
 
 async function runDeepSeekVisualTextAnalysis(payload) {
-  const config = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
-  config.outputLanguage = "zh-CN";
+  const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const config = normalizeDeepSeekConfig(stored, payload?.settings);
+  const t = config.t;
   if (!config.deepseekApiKey) {
-    throw new Error("缺少 DeepSeek API Key，请打开插件设置填写。");
+    throw new Error(t("errorMissingApiKey"));
   }
 
   const rawText = String(payload?.extraction?.rawVisibleText || "").trim();
   if (!rawText) {
-    throw new Error("画面本地 OCR 没有提取到可分析文字。");
+    throw new Error(t("errorVisualOcrEmpty"));
   }
 
   try {
-    const result = await requestDeepSeekJson(buildDeepSeekVisualTextMessages(payload), config, {
-      repairMessagesBuilder: buildDeepSeekVisualJsonRepairMessages
+    const result = await requestDeepSeekJson(buildDeepSeekVisualTextMessages(payload, config), config, {
+      repairMessagesBuilder: (rawText) => buildDeepSeekVisualJsonRepairMessages(rawText, config)
     });
-    return normalizeVisualTextAnalysisResult(result, payload?.extraction || {}, payload?.videoTitle || "");
+    return normalizeVisualTextAnalysisResult(
+      result,
+      payload?.extraction || {},
+      payload?.videoTitle || "",
+      config.outputLanguage
+    );
   } catch (error) {
     if (!(error instanceof ModelJsonParseError)) {
       throw error;
     }
-    const repaired = await requestDeepSeekJson(buildDeepSeekVisualJsonRepairMessages(error.rawText), config, {
+    const repaired = await requestDeepSeekJson(buildDeepSeekVisualJsonRepairMessages(error.rawText, config), config, {
       allowRepair: false
     });
-    return normalizeVisualTextAnalysisResult(repaired, payload?.extraction || {}, payload?.videoTitle || "");
+    return normalizeVisualTextAnalysisResult(
+      repaired,
+      payload?.extraction || {},
+      payload?.videoTitle || "",
+      config.outputLanguage
+    );
   }
 }
 
-function buildDeepSeekVisualTextMessages(payload) {
+async function runDeepSeekQa(payload) {
+  const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+  const config = normalizeDeepSeekConfig(stored, payload?.settings);
+  const t = config.t;
+  if (!config.deepseekApiKey) {
+    throw new Error(t("errorMissingApiKey"));
+  }
+
+  const question = String(payload?.question || "").trim();
+  if (!question) {
+    throw new Error(t("errorQaQuestionMissing"));
+  }
+
+  const references = await fetchReferenceMaterials(payload, config);
+  const result = await requestDeepSeekJson(buildDeepSeekQaMessages(payload, config, references), config, {
+    repairMessagesBuilder: (rawText) => buildDeepSeekQaRepairMessages(rawText, config)
+  });
+  return normalizeQaResult(result, references);
+}
+
+function buildDeepSeekQaMessages(payload, config, references) {
+  const t = config.t;
+  const transcript = buildTranscriptExcerpt(payload?.transcript || [], payload?.question || "");
+  const outline = buildOutlineExcerpt(payload?.studyPack);
+  const visuals = buildVisualExcerpt(payload?.visualAnalysis || []);
+  const referenceText = references
+    .map((item, index) => `[R${index + 1}] ${item.title}\n${item.url}\n${item.snippet}`)
+    .join("\n\n");
+  const schemaExample = {
+    answer: t("promptQaAnswerExample"),
+    sources: [{ title: t("promptQaSourceTitleExample"), url: "https://example.com", note: t("promptQaSourceNoteExample") }]
+  };
+
+  return [
+    {
+      role: "system",
+      content:
+        "You answer questions about a lecture video. Output valid JSON only. " +
+        "Use the transcript, outline, visual OCR notes, and provided public reference snippets as evidence. " +
+        "Do not invent facts. If the evidence is insufficient, say what is missing. " +
+        t("promptQaLanguageInstruction")
+    },
+    {
+      role: "user",
+      content:
+        `Question:\n${String(payload?.question || "").slice(0, 1200)}\n\n` +
+        `Video title:\n${payload?.videoTitle || ""}\n\n` +
+        `Video URL:\n${payload?.videoUrl || ""}\n\n` +
+        `Transcript evidence:\n${transcript}\n\n` +
+        `Generated outline:\n${outline}\n\n` +
+        `Visual/OCR notes:\n${visuals}\n\n` +
+        `Public reference snippets:\n${referenceText || "No external reference snippets were available."}\n\n` +
+        `Return strict JSON matching this shape exactly: ${JSON.stringify(schemaExample)}\n` +
+        `Rules:\n` +
+        `1. The answer must directly address the question.\n` +
+        `2. Prefer video transcript evidence when it conflicts with public snippets.\n` +
+        `3. Mention useful timestamps when transcript lines support the answer.\n` +
+        `4. sources should include transcript/outline/visual evidence labels and any relevant public URLs.\n` +
+        `5. Do not include markdown outside JSON.`
+    }
+  ];
+}
+
+function buildDeepSeekQaRepairMessages(rawText, config = normalizeDeepSeekConfig()) {
+  const t = config.t;
+  const schemaExample = {
+    answer: t("promptQaAnswerExample"),
+    sources: [{ title: t("promptQaSourceTitleExample"), url: "https://example.com", note: t("promptQaSourceNoteExample") }]
+  };
+  return [
+    {
+      role: "system",
+      content: "You repair malformed JSON from a lecture Q&A assistant. Output valid JSON only."
+    },
+    {
+      role: "user",
+      content:
+        `Repair this into strict JSON matching this schema exactly: ${JSON.stringify(schemaExample)}\n` +
+        `Keep only answer and sources.\n\nMalformed JSON:\n${String(rawText || "").slice(0, 8000)}`
+    }
+  ];
+}
+
+function normalizeQaResult(result, references = []) {
+  const answer = String(result?.answer || "").trim();
+  const modelSources = Array.isArray(result?.sources) ? result.sources : [];
+  const sources = modelSources
+    .map((source) => ({
+      title: String(source?.title || source?.label || "").trim(),
+      url: sanitizeReferenceUrl(source?.url),
+      note: String(source?.note || "").trim()
+    }))
+    .filter((source) => source.title || source.url || source.note);
+
+  const externalByUrl = new Map(
+    references
+      .filter((source) => source.url)
+      .map((source) => [source.url, source])
+  );
+  for (const source of sources) {
+    if (source.url && externalByUrl.has(source.url) && !source.note) {
+      source.note = externalByUrl.get(source.url).snippet;
+    }
+  }
+
+  return {
+    answer,
+    sources: sources.slice(0, 8)
+  };
+}
+
+async function fetchReferenceMaterials(payload, config) {
+  const query = buildReferenceQuery(payload);
+  if (!query) {
+    return [];
+  }
+
+  try {
+    const url = `https://api.duckduckgo.com/?${new URLSearchParams({
+      q: query,
+      format: "json",
+      no_html: "1",
+      no_redirect: "1",
+      skip_disambig: "1"
+    }).toString()}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      return [];
+    }
+    const data = await response.json();
+    return normalizeDuckDuckGoReferences(data, config).slice(0, 6);
+  } catch (error) {
+    console.warn("[MIT Study] reference-fetch-failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return [];
+  }
+}
+
+function buildReferenceQuery(payload) {
+  return [
+    payload?.videoTitle,
+    payload?.question,
+    "lecture reference"
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 240);
+}
+
+function normalizeDuckDuckGoReferences(data, config) {
+  const references = [];
+  if (data?.AbstractText || data?.AbstractURL) {
+    references.push({
+      title: String(data.Heading || config.t("qaExternalReference")).trim(),
+      url: sanitizeReferenceUrl(data.AbstractURL),
+      snippet: String(data.AbstractText || "").trim()
+    });
+  }
+  collectDuckDuckGoTopics(data?.RelatedTopics, references);
+  return dedupeReferences(references);
+}
+
+function collectDuckDuckGoTopics(topics, references) {
+  if (!Array.isArray(topics)) {
+    return;
+  }
+  for (const topic of topics) {
+    if (Array.isArray(topic?.Topics)) {
+      collectDuckDuckGoTopics(topic.Topics, references);
+      continue;
+    }
+    const snippet = String(topic?.Text || "").trim();
+    const url = sanitizeReferenceUrl(topic?.FirstURL);
+    if (!snippet && !url) {
+      continue;
+    }
+    references.push({
+      title: snippet.split(" - ")[0]?.slice(0, 120) || url,
+      url,
+      snippet
+    });
+  }
+}
+
+function dedupeReferences(references) {
+  const seen = new Set();
+  return references.filter((reference) => {
+    const key = reference.url || `${reference.title}|${reference.snippet}`;
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function sanitizeReferenceUrl(value) {
+  const text = String(value || "").trim();
+  if (!/^https?:\/\//i.test(text)) {
+    return "";
+  }
+  return text;
+}
+
+function buildTranscriptExcerpt(transcript, question) {
+  const entries = Array.isArray(transcript) ? transcript : [];
+  const tokens = extractQueryTokens(question);
+  const scored = entries
+    .map((entry, index) => ({
+      entry,
+      index,
+      score: scoreTextForTokens(entry?.text, tokens)
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const selected = scored
+    .filter((item) => item.score > 0)
+    .slice(0, 24)
+    .sort((left, right) => left.index - right.index)
+    .map((item) => item.entry);
+  const fallback = selected.length ? selected : entries.slice(0, 36);
+  return fallback
+    .map((entry) => `[${formatTime(entry.startMs || 0)}] ${String(entry.text || "").trim()}`)
+    .join("\n")
+    .slice(0, 9000);
+}
+
+function buildOutlineExcerpt(studyPack) {
+  const outline = Array.isArray(studyPack?.outline) ? studyPack.outline : [];
+  return outline
+    .slice(0, 80)
+    .map((item) => `[${item.timestamp || formatTime((item.seconds || 0) * 1000)}] ${item.heading || ""}: ${(item.bullets || []).join(" ")}`)
+    .join("\n")
+    .slice(0, 5000);
+}
+
+function buildVisualExcerpt(items) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, 24)
+    .map((item) => `[${item.timestamp || formatTime((item.seconds || 0) * 1000)}] ${item.title || ""}: ${(item.bullets || []).join(" ")} ${(item.visibleText || []).join(" ")}`)
+    .join("\n")
+    .slice(0, 5000);
+}
+
+function extractQueryTokens(text) {
+  return String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9\u3400-\u9fff]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, 24);
+}
+
+function scoreTextForTokens(text, tokens) {
+  const normalized = String(text || "").toLowerCase();
+  return tokens.reduce((score, token) => score + (normalized.includes(token) ? 1 : 0), 0);
+}
+
+function buildDeepSeekVisualTextMessages(payload, config) {
+  const t = config.t;
   const extraction = payload?.extraction || {};
   const visualType = normalizeVisualType(extraction.visualType || extraction.keyFrame?.visualType);
-  const visualTypeLabel = getVisualTypeLabel(visualType);
+  const visualTypeLabel = getVisualTypeLabel(visualType, config.outputLanguage);
   const schemaExample = {
-    title: "中文标题",
-    bullets: ["中文要点"],
-    relationToTranscript: "和当前讲解的关系",
-    tags: ["标签"],
+    title: t("promptVisualTitleExample"),
+    bullets: [t("promptVisualBulletExample")],
+    relationToTranscript: t("promptVisualRelationExample"),
+    tags: [t("promptVisualTagExample")],
     visualType
   };
   const transcriptContext = Array.isArray(payload?.transcriptContext)
@@ -562,33 +913,34 @@ function buildDeepSeekVisualTextMessages(payload) {
       content:
         "You analyze OCR text extracted locally from lecture visual frames such as slides, blackboards, whiteboards, or screen shares. Output valid JSON only. " +
         "The image itself was not sent to you. Do not claim visual details beyond the provided OCR text. " +
-        "All user-facing fields must be Simplified Chinese. Keep technical terms in English only when necessary. " +
+        `${t("promptVisualLanguageInstruction")} ` +
         "Do not call a blackboard or whiteboard a PPT."
     },
     {
       role: "user",
       content:
-        `根据下面的本地 OCR 原文分析这张${visualTypeLabel}关键帧。\n` +
-        `要求：\n` +
-        `1. 只基于 OCR 原文和附近字幕，不要编造图像细节。\n` +
-        `2. 输出中文标题、2-4 个中文要点、和当前讲解的关系、3-6 个中文检索标签。\n` +
-        `3. 如果 OCR 原文很短，只做保守概括。\n` +
-        `4. 返回严格 JSON，结构必须是：${JSON.stringify(schemaExample)}\n` +
-        `5. visualType 必须保持为 "${visualType}"，不要改成其他类型。\n` +
+        `${t("promptVisualUserIntro", { visualType: visualTypeLabel })}\n` +
+        `Requirements:\n` +
+        `1. Only use the OCR text and nearby transcript. Do not invent image details.\n` +
+        `2. ${t("promptVisualRequirementOutput")}\n` +
+        `3. If OCR text is short, summarize conservatively.\n` +
+        `4. Return strict JSON matching this shape: ${JSON.stringify(schemaExample)}\n` +
+        `5. visualType must remain "${visualType}". Do not change it.\n` +
         `6. video title: ${payload?.videoTitle || ""}\n` +
         `7. timestamp: ${extraction.timestamp || ""}\n\n` +
-        `OCR 原文：\n${String(extraction.rawVisibleText || "").slice(0, 4000)}\n\n` +
-        `附近字幕：\n${transcriptContext.slice(0, 3000)}`
+        `${t("promptOcrRaw")}:\n${String(extraction.rawVisibleText || "").slice(0, 4000)}\n\n` +
+        `${t("promptNearbyTranscript")}:\n${transcriptContext.slice(0, 3000)}`
     }
   ];
 }
 
-function buildDeepSeekVisualJsonRepairMessages(rawText) {
+function buildDeepSeekVisualJsonRepairMessages(rawText, config = normalizeDeepSeekConfig()) {
+  const t = config.t;
   const schemaExample = {
-    title: "中文标题",
-    bullets: ["中文要点"],
-    relationToTranscript: "和当前讲解的关系",
-    tags: ["标签"],
+    title: t("promptVisualTitleExample"),
+    bullets: [t("promptVisualBulletExample")],
+    relationToTranscript: t("promptVisualRelationExample"),
+    tags: [t("promptVisualTagExample")],
     visualType: "ppt"
   };
 
@@ -597,7 +949,7 @@ function buildDeepSeekVisualJsonRepairMessages(rawText) {
       role: "system",
       content:
         "You repair malformed JSON from a lecture visual text analyzer. Output valid JSON only. " +
-        "Do not add new facts. Preserve the Chinese meaning as much as possible."
+        `Do not add new facts. ${t("promptRepairPreserve")}`
     },
     {
       role: "user",
@@ -606,7 +958,7 @@ function buildDeepSeekVisualJsonRepairMessages(rawText) {
         `Rules:\n` +
         `1. Return JSON only, no markdown.\n` +
         `2. Keep only title, bullets, relationToTranscript, tags, visualType.\n` +
-        `3. User-facing text must be Simplified Chinese.\n` +
+        `3. ${t("promptVisualRepairLanguageRule")}\n` +
         `4. visualType must be one of: ppt, blackboard, whiteboard, screen, visual.\n\n` +
         `Malformed JSON:\n${String(rawText || "").slice(0, 8000)}`
     }
@@ -627,21 +979,22 @@ function normalizeVisualType(value) {
   return "visual";
 }
 
-function getVisualTypeLabel(value) {
+function getVisualTypeLabel(value, language = "zh-CN") {
+  const t = createTranslator(language);
   const visualType = normalizeVisualType(value);
   if (visualType === "ppt") {
-    return "PPT";
+    return t("visualTypePpt");
   }
   if (visualType === "blackboard") {
-    return "板书";
+    return t("visualTypeBlackboard");
   }
   if (visualType === "whiteboard") {
-    return "白板";
+    return t("visualTypeWhiteboard");
   }
   if (visualType === "screen") {
-    return "屏幕";
+    return t("visualTypeScreen");
   }
-  return "画面";
+  return t("visualTypeVisual");
 }
 
 async function requestDeepSeekJson(messages, config, options = {}) {
@@ -661,13 +1014,13 @@ async function requestDeepSeekJson(messages, config, options = {}) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`DeepSeek 请求失败，状态码 ${response.status}: ${errorText.slice(0, 300)}`);
+    throw new Error(config.t("errorDeepSeekStatus", { status: response.status, message: errorText.slice(0, 300) }));
   }
 
   const json = await response.json();
   const content = json?.choices?.[0]?.message?.content;
   if (!content) {
-    throw new Error("DeepSeek 返回了空响应。");
+    throw new Error(config.t("errorDeepSeekEmpty"));
   }
 
   try {

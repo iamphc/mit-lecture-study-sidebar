@@ -1,12 +1,12 @@
 {
   "name": "mit-lecture-study-sidebar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
-  "description": "Chrome extension for turning MIT YouTube lecture content into progressive Chinese outlines with DeepSeek.",
+  "description": "Chrome extension for turning MIT YouTube lecture content into progressive study outlines with DeepSeek.",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "check": "node --check src/content.js && node --check src/transcript-utils-content.js && node --check src/page-bridge.js && node --check src/local-vision.js && node --check src/local-save-directory.js && node --check src/local-save-utils.mjs && node --check src/background.js && node --check src/options.js && node --check src/popup.js && node --check scripts/lecture-csv-store.mjs && node --check scripts/lecture-csv-server.mjs",
+    "check": "node --check src/i18n.js && node --check src/content.js && node --check src/transcript-utils-content.js && node --check src/page-bridge.js && node --check src/local-vision.js && node --check src/local-save-directory.js && node --check src/local-save-utils.mjs && node --check src/background.js && node --check src/options.js && node --check src/popup.js && node --check scripts/lecture-csv-store.mjs && node --check scripts/lecture-csv-server.mjs",
     "test": "node test/test-transcript-utils.mjs && node test/test-background-utils.mjs && node test/test-local-vision.mjs && node test/test-harness-files.mjs && node test/test-lecture-csv-store.mjs && node test/test-ui-smoke.mjs",
     "verify": "npm run check && npm run test",
     "csv-server": "node scripts/lecture-csv-server.mjs",

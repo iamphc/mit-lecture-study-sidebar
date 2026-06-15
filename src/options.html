@@ -1,95 +1,105 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MIT 课程学习侧边栏设置</title>
+    <title data-i18n="optionsTitle">MIT Lecture Study Sidebar Settings</title>
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <main class="settings-shell">
       <section class="settings-card">
-        <p class="settings-kicker">MIT 课程学习</p>
-        <h1>插件设置</h1>
-        <p class="settings-copy">
-          使用 DeepSeek 根据课程内容生成中文大纲；PPT 画面先在浏览器本地筛选关键帧并提取 OCR 原文，再只把文字交给 DeepSeek 分析。
-        </p>
+        <p class="settings-kicker" data-i18n="appShortName">MIT Lecture Study</p>
+        <h1 data-i18n="optionsHeading">Extension Settings</h1>
+        <p class="settings-copy" data-i18n="optionsIntro"></p>
 
         <form id="settings-form" class="settings-form">
           <label class="settings-checkbox">
             <input name="autoAnalyze" type="checkbox" />
-            <span>自动分析课程视频</span>
-            <small>默认关闭。打开后，只要进入 YouTube 视频就会自动读取课程内容、生成中文大纲，并定时扫描 PPT 画面；关闭后只在你点击“生成大纲”时处理当前视频。</small>
+            <span data-i18n="autoAnalyzeLabel">Auto-analyze lecture videos</span>
+            <small data-i18n="autoAnalyzeHelp"></small>
           </label>
 
           <label>
-            <span>DeepSeek API Key</span>
+            <span data-i18n="deepseekApiKey">DeepSeek API Key</span>
             <input name="deepseekApiKey" type="password" placeholder="sk-..." autocomplete="off" />
           </label>
 
           <label>
-            <span>DeepSeek Base URL</span>
+            <span data-i18n="deepseekBaseUrl">DeepSeek Base URL</span>
             <input name="deepseekBaseUrl" type="url" placeholder="https://api.deepseek.com" />
           </label>
 
           <label>
-            <span>模型</span>
+            <span data-i18n="deepseekModel">Model</span>
             <input name="deepseekModel" type="text" placeholder="deepseek-v4-flash" />
           </label>
 
           <label>
-            <span>画面扫描间隔</span>
+            <span data-i18n="visualScanInterval">Visual scan interval</span>
             <input name="visualScanIntervalSeconds" type="number" min="5" max="300" step="5" />
-            <small>单位：秒。广告播放时会暂停画面分析并每 5 秒短重试；正常课程画面按这里的间隔扫描。</small>
+            <small data-i18n="visualScanIntervalHelp"></small>
           </label>
 
           <section class="settings-directory-card">
             <div>
-              <span>本地保存目录</span>
-              <small>生成完成后自动保存到这个目录：根目录写入 lecture_library.csv，每个视频另存 lectures/&lt;video_id&gt;/lecture.json 和 study_pack.md。</small>
+              <span data-i18n="localSaveDirectory">Local save directory</span>
+              <small data-i18n="localSaveDirectoryHelp"></small>
             </div>
             <div class="settings-directory-actions">
-              <button type="button" id="choose-save-directory" class="secondary">选择目录</button>
-              <button type="button" id="clear-save-directory" class="ghost">清除</button>
+              <button type="button" id="choose-save-directory" class="secondary" data-i18n="chooseDirectory">Choose Directory</button>
+              <button type="button" id="clear-save-directory" class="ghost" data-i18n="clear">Clear</button>
             </div>
-            <p id="save-directory-status">还没有选择目录</p>
+            <p id="save-directory-status" data-i18n="directoryNotSelected">No directory selected</p>
           </section>
 
           <label>
-            <span>本地保存目录状态</span>
-            <input name="localSaveDirectoryName" type="text" readonly placeholder="未选择" />
-            <small>浏览器安全限制下不能手动输入路径，必须点击“选择目录”授权。授权后插件可以自动保存，不需要运行 npm run csv-server。</small>
+            <span data-i18n="localSaveDirectoryStatus">Local save directory status</span>
+            <input name="localSaveDirectoryName" type="text" readonly data-i18n-placeholder="directoryPlaceholder" placeholder="Not selected" />
+            <small data-i18n="localSaveDirectoryStatusHelp"></small>
           </label>
 
           <label>
-            <span>输出语言</span>
+            <span data-i18n="interfaceLanguage">Interface language</span>
+            <select name="uiLanguage">
+              <option value="auto" data-i18n="languageAuto">Follow browser</option>
+              <option value="zh-CN" data-i18n="languageChinese">中文</option>
+              <option value="en" data-i18n="languageEnglish">English</option>
+            </select>
+          </label>
+
+          <label>
+            <span data-i18n="outputLanguage">Output language</span>
             <select name="outputLanguage">
-              <option value="zh-CN">中文</option>
+              <option value="auto" data-i18n="outputLanguageAuto">Follow interface</option>
+              <option value="zh-CN" data-i18n="languageChinese">中文</option>
+              <option value="en" data-i18n="languageEnglish">English</option>
             </select>
           </label>
 
           <label>
-            <span>笔记风格</span>
+            <span data-i18n="noteTone">Note style</span>
             <select name="noteTone">
-              <option value="study-handout">讲义式笔记</option>
-              <option value="structured-outline">结构化大纲</option>
-              <option value="review-notes">复习笔记</option>
+              <option value="study-handout" data-i18n="noteToneStudyHandout">Study handout</option>
+              <option value="structured-outline" data-i18n="noteToneStructuredOutline">Structured outline</option>
+              <option value="review-notes" data-i18n="noteToneReviewNotes">Review notes</option>
             </select>
           </label>
 
           <label>
-            <span>侧边栏宽度</span>
+            <span data-i18n="sidebarWidth">Sidebar width</span>
             <input name="sidebarWidth" type="number" min="320" max="640" step="10" />
           </label>
 
           <div class="settings-actions">
-            <button type="submit">保存设置</button>
-            <button type="button" id="test-connection" class="secondary">测试 DeepSeek</button>
+            <button type="submit" data-i18n="saveSettings">Save Settings</button>
+            <button type="button" id="test-connection" class="secondary" data-i18n="testDeepSeek">Test DeepSeek</button>
             <span id="settings-status"></span>
           </div>
         </form>
       </section>
     </main>
+    <script src="i18n.js"></script>
     <script type="module" src="options.js"></script>
   </body>
 </html>

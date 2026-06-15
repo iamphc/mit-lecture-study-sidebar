@@ -1,24 +1,23 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MIT 课程学习侧边栏</title>
+    <title data-i18n="appName">MIT Lecture Study Sidebar</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="popup-shell">
-      <p class="popup-kicker">MIT 课程学习</p>
-      <h1>课程大纲学习工具</h1>
-      <p class="popup-copy">
-        打开 YouTube 上的 MIT 课程视频，自动生成中文大纲并保存到本地资料库。
-      </p>
+      <p class="popup-kicker" data-i18n="appShortName">MIT Lecture Study</p>
+      <h1 data-i18n="popupTitle">Lecture Outline Study Tool</h1>
+      <p class="popup-copy" data-i18n="popupIntro"></p>
       <div class="popup-actions">
-        <button id="open-youtube" type="button">打开 MIT YouTube 搜索</button>
-        <button id="open-settings" type="button" class="ghost">插件设置</button>
+        <button id="open-youtube" type="button" data-i18n="openYoutube">Open MIT YouTube Search</button>
+        <button id="open-settings" type="button" class="ghost" data-i18n="openSettings">Extension Settings</button>
       </div>
       <p id="popup-status" class="popup-status"></p>
     </main>
+    <script src="i18n.js"></script>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

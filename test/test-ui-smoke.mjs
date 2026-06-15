@@ -13,6 +13,8 @@ async function loadText(relativePath) {
 }
 
 function buildMockChrome(syncOverrides = {}) {
+  const uiLanguage = syncOverrides.__uiLanguage || "zh-CN";
+  const { __uiLanguage: _ignoredUiLanguage, ...settingsOverrides } = syncOverrides;
   const syncStore = {
     autoAnalyze: false,
     sidebarWidth: 420,
@@ -20,9 +22,10 @@ function buildMockChrome(syncOverrides = {}) {
     deepseekBaseUrl: "https://api.deepseek.com",
     deepseekModel: "deepseek-v4-flash",
     visualScanIntervalSeconds: 45,
+    uiLanguage: "zh-CN",
     outputLanguage: "zh-CN",
     noteTone: "study-handout",
-    ...syncOverrides
+    ...settingsOverrides
   };
 
   const localStore = {
@@ -74,6 +77,21 @@ function buildMockChrome(syncOverrides = {}) {
             }
           };
         }
+        if (message?.type === "RUN_DEEPSEEK_QA") {
+          return {
+            ok: true,
+            result: {
+              answer: "这是基于字幕和参考资料生成的模拟回答。",
+              sources: [
+                {
+                  title: "字幕",
+                  url: "",
+                  note: "使用了当前视频字幕。"
+                }
+              ]
+            }
+          };
+        }
         if (message?.type === "CAPTURE_VISIBLE_TAB") {
           return {
             ok: true,
@@ -106,6 +124,11 @@ function buildMockChrome(syncOverrides = {}) {
         return { ok: true };
       },
       openOptionsPage() {}
+    },
+    i18n: {
+      getUILanguage() {
+        return uiLanguage;
+      }
     },
     tabs: {
       create() {},
@@ -182,6 +205,28 @@ function installClipboardMock(window) {
   });
 }
 
+async function installI18n(window) {
+  window.chrome ??= buildMockChrome();
+  window.eval(await loadText("src/i18n.js"));
+}
+
+async function testI18nCanLoadRepeatedly() {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "https://extension-repeat-i18n.test/",
+    runScripts: "dangerously"
+  });
+
+  try {
+    dom.window.chrome = buildMockChrome();
+    await installI18n(dom.window);
+    await installI18n(dom.window);
+    const t = dom.window.MitStudyI18n.createTranslator("en");
+    assert.equal(t("appShortName"), "MIT Lecture Study");
+  } finally {
+    dom.window.close();
+  }
+}
+
 function installCanvasMock(window, options = {}) {
   const getPixelSeed = () => Math.max(1, Math.floor(Number(options.seed?.() || 80)));
   window.HTMLCanvasElement.prototype.getContext = function getContext() {
@@ -231,6 +276,7 @@ async function testPopup() {
   try {
     dom.window.chrome = buildMockChrome();
     installClipboardMock(dom.window);
+    await installI18n(dom.window);
     dom.window.eval(script);
 
     const title = dom.window.document.querySelector("h1")?.textContent || "";
@@ -251,6 +297,7 @@ async function testOptions() {
   try {
     dom.window.chrome = buildMockChrome();
     installClipboardMock(dom.window);
+    await installI18n(dom.window);
     dom.window.eval(script);
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -276,6 +323,122 @@ async function testOptions() {
   }
 }
 
+async function testEnglishI18nUi() {
+  const popupHtml = await loadText("src/popup.html");
+  const popupScript = await loadText("src/popup.js");
+  const popupDom = new JSDOM(popupHtml, {
+    url: "https://extension-popup.test/",
+    runScripts: "dangerously"
+  });
+
+  try {
+    popupDom.window.chrome = buildMockChrome({
+      __uiLanguage: "en-US",
+      uiLanguage: "auto",
+      outputLanguage: "auto"
+    });
+    installClipboardMock(popupDom.window);
+    await installI18n(popupDom.window);
+    popupDom.window.eval(popupScript);
+    assert.match(popupDom.window.document.body.textContent || "", /Lecture Outline Study Tool/);
+    assert.match(popupDom.window.document.body.textContent || "", /Open MIT YouTube Search/);
+  } finally {
+    popupDom.window.close();
+  }
+
+  const optionsHtml = await loadText("src/options.html");
+  const optionsScript = await loadText("src/options.js");
+  const optionsDom = new JSDOM(optionsHtml, {
+    url: "https://extension-options.test/",
+    runScripts: "dangerously"
+  });
+
+  try {
+    optionsDom.window.chrome = buildMockChrome({
+      __uiLanguage: "en-US",
+      uiLanguage: "auto",
+      outputLanguage: "auto"
+    });
+    installClipboardMock(optionsDom.window);
+    await installI18n(optionsDom.window);
+    optionsDom.window.eval(optionsScript);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.match(optionsDom.window.document.body.textContent || "", /Extension Settings/);
+    assert.match(optionsDom.window.document.body.textContent || "", /Auto-analyze lecture videos/);
+    assert.match(optionsDom.window.document.body.textContent || "", /Output language/);
+  } finally {
+    optionsDom.window.close();
+  }
+}
+
+async function testEnglishSidebarUsesEnglishOutputLanguage() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>MIT Sidebar Smoke - YouTube</title></head><body><h1 class="title">MIT Sidebar Smoke</h1><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=smoke-en",
+      runScripts: "dangerously"
+    }
+  );
+
+  const chrome = buildMockChrome({
+    __uiLanguage: "en-US",
+    uiLanguage: "auto",
+    outputLanguage: "auto",
+    autoAnalyze: true
+  });
+  dom.window.chrome = chrome;
+  installClipboardMock(dom.window);
+  dom.window.ytInitialData = {
+    engagementPanels: [
+      {
+        engagementPanelSectionListRenderer: {
+          panelIdentifier: "engagement-panel-searchable-transcript",
+          content: {
+            transcriptRenderer: {
+              content: {
+                transcriptSearchPanelRenderer: {
+                  body: {
+                    transcriptSegmentListRenderer: {
+                      initialSegments: [
+                        {
+                          transcriptSegmentRenderer: {
+                            startMs: "0",
+                            endMs: "2000",
+                            snippet: {
+                              runs: [{ text: "Direct transcript line." }]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  };
+  dom.window.ytInitialPlayerResponse = {
+    videoDetails: { title: "MIT Sidebar Smoke" }
+  };
+
+  await installI18n(dom.window);
+  dom.window.eval(scriptUtils);
+  dom.window.eval(contentScript);
+  await new Promise((resolve) => setTimeout(resolve, 520));
+
+  const sidebarText = dom.window.document.getElementById("mit-study-sidebar-host")?.textContent || "";
+  assert.match(sidebarText, /MIT Lecture Study/);
+  assert.match(sidebarText, /Generate Outline|Outline generated|Done/);
+  const analysisMessage = chrome.__messages.find((message) => message?.type === "RUN_DEEPSEEK_ANALYSIS");
+  assert.equal(analysisMessage?.payload?.settings?.outputLanguage, "en");
+  dom.window.close();
+}
+
 async function testAutoAnalyzeDisabledByDefault() {
   const scriptUtils = await loadText("src/transcript-utils-content.js");
   const contentScript = await loadText("src/content.js");
@@ -290,6 +453,7 @@ async function testAutoAnalyzeDisabledByDefault() {
   const chrome = buildMockChrome();
   dom.window.chrome = chrome;
   installClipboardMock(dom.window);
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 520));
@@ -360,6 +524,7 @@ async function testSidebar() {
     }
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
 
@@ -431,6 +596,7 @@ async function testSidebarDeepSeekFailureShowsError() {
     }
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -528,6 +694,7 @@ async function testCaptionTrackFallback() {
     };
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -634,6 +801,7 @@ async function testInnertubePlayerFallback() {
     };
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 520));
@@ -755,6 +923,7 @@ async function testTranscriptApiUsesHtmlYtcfgFallback() {
     };
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 520));
@@ -797,6 +966,7 @@ async function testDeepSeekModeWithoutApiKeyShowsPrompt() {
     }
   });
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 520));
@@ -878,6 +1048,7 @@ async function testProgressiveOutlineRendersPartialPack() {
     ]
   };
 
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 520));
@@ -944,7 +1115,7 @@ async function testVisualAnalysisTabRendersSeparately() {
     "studyPack:smoke888": {
       updatedAt: new Date().toISOString(),
       videoTitle: "MIT Sidebar Smoke",
-      studyPackCacheVersion: "outline-zh-v1",
+      studyPackCacheVersion: "outline-i18n-v1",
       transcript: [
         {
           startMs: 0,
@@ -1012,6 +1183,7 @@ async function testVisualAnalysisTabRendersSeparately() {
 
   installClipboardMock(dom.window);
   dom.window.chrome = chrome;
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 80));
@@ -1057,7 +1229,7 @@ async function testVisualAnalysisSkipsYouTubeAds() {
     "studyPack:smoke889": {
       updatedAt: new Date().toISOString(),
       videoTitle: "MIT Sidebar Smoke",
-      studyPackCacheVersion: "outline-zh-v1",
+      studyPackCacheVersion: "outline-i18n-v1",
       transcript: [
         {
           startMs: 0,
@@ -1082,6 +1254,7 @@ async function testVisualAnalysisSkipsYouTubeAds() {
 
   installClipboardMock(dom.window);
   dom.window.chrome = chrome;
+  await installI18n(dom.window);
   dom.window.eval(scriptUtils);
   dom.window.eval(contentScript);
   await new Promise((resolve) => setTimeout(resolve, 80));
@@ -1121,7 +1294,7 @@ async function testVisualAnalysisRescansAfterHiddenTab() {
     "studyPack:smoke890": {
       updatedAt: new Date().toISOString(),
       videoTitle: "MIT Hidden Tab Smoke",
-      studyPackCacheVersion: "outline-zh-v1",
+      studyPackCacheVersion: "outline-i18n-v1",
       transcript: [
         {
           startMs: 10000,
@@ -1155,6 +1328,7 @@ async function testVisualAnalysisRescansAfterHiddenTab() {
     });
     installClipboardMock(dom.window);
     dom.window.chrome = chrome;
+    await installI18n(dom.window);
     dom.window.eval(scriptUtils);
     dom.window.eval(contentScript);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -1189,10 +1363,79 @@ async function testVisualAnalysisRescansAfterHiddenTab() {
   }
 }
 
+async function testLectureQaUsesTranscriptContext() {
+  const scriptUtils = await loadText("src/transcript-utils-content.js");
+  const contentScript = await loadText("src/content.js");
+  const dom = new JSDOM(
+    `<!doctype html><html><head><title>MIT QA Smoke - YouTube</title></head><body><h1 class="title">MIT QA Smoke</h1><video></video></body></html>`,
+    {
+      url: "https://www.youtube.com/watch?v=smokeqa1",
+      runScripts: "dangerously"
+    }
+  );
+
+  const chrome = buildMockChrome();
+  await chrome.storage.local.set({
+    "studyPack:smokeqa1": {
+      updatedAt: new Date().toISOString(),
+      videoTitle: "MIT QA Smoke",
+      studyPackCacheVersion: "outline-i18n-v1",
+      transcript: [
+        {
+          startMs: 0,
+          durationMs: 3000,
+          text: "The lecturer explains manifolds and dimension."
+        }
+      ],
+      studyPack: {
+        title: "模拟课程",
+        outline: [
+          {
+            timestamp: "00:00",
+            seconds: 0,
+            heading: "流形和维度",
+            bullets: ["解释维度选择。"]
+          }
+        ]
+      },
+      visualAnalysis: []
+    }
+  });
+
+  try {
+    installClipboardMock(dom.window);
+    dom.window.chrome = chrome;
+    await installI18n(dom.window);
+    dom.window.eval(scriptUtils);
+    dom.window.eval(contentScript);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    dom.window.document.querySelector('[data-tab="qa"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const textarea = dom.window.document.querySelector('[data-action="qa-question"]');
+    textarea.value = "这节课为什么要讨论维度？";
+    textarea.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    dom.window.document.querySelector('[data-action="ask-question"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const qaMessage = chrome.__messages.find((message) => message?.type === "RUN_DEEPSEEK_QA");
+    assert.equal(qaMessage?.payload?.question, "这节课为什么要讨论维度？");
+    assert.equal(qaMessage?.payload?.transcript?.length, 1);
+    const qaText = dom.window.document.querySelector('[data-pane="qa"]')?.textContent || "";
+    assert.match(qaText, /模拟回答/);
+    assert.match(qaText, /字幕/);
+  } finally {
+    dom.window.close();
+  }
+}
+
 async function main() {
+  await testI18nCanLoadRepeatedly();
   await testPopup();
   await testOptions();
+  await testEnglishI18nUi();
   await testAutoAnalyzeDisabledByDefault();
+  await testEnglishSidebarUsesEnglishOutputLanguage();
   await testSidebar();
   await testSidebarDeepSeekFailureShowsError();
   await testCaptionTrackFallback();
@@ -1201,6 +1444,7 @@ async function main() {
   await testDeepSeekModeWithoutApiKeyShowsPrompt();
   await testProgressiveOutlineRendersPartialPack();
   await testVisualAnalysisTabRendersSeparately();
+  await testLectureQaUsesTranscriptContext();
   await testVisualAnalysisSkipsYouTubeAds();
   await testVisualAnalysisRescansAfterHiddenTab();
   console.log("ui smoke tests passed");

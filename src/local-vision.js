@@ -8,14 +8,62 @@ const KEYFRAME_SAMPLE_HEIGHT = 90;
 const DEFAULT_KEYFRAME_THRESHOLD = 0.52;
 const MIN_RAW_TEXT_LENGTH = 3;
 const VISUAL_TYPE_LABELS = {
-  ppt: "PPT",
-  slide: "PPT",
-  slides: "PPT",
-  blackboard: "板书",
-  chalkboard: "板书",
-  whiteboard: "白板",
-  screen: "屏幕",
-  visual: "画面"
+  "zh-CN": {
+    ppt: "PPT",
+    slide: "PPT",
+    slides: "PPT",
+    blackboard: "板书",
+    chalkboard: "板书",
+    whiteboard: "白板",
+    screen: "屏幕",
+    visual: "画面"
+  },
+  en: {
+    ppt: "Slide",
+    slide: "Slide",
+    slides: "Slide",
+    blackboard: "Blackboard",
+    chalkboard: "Blackboard",
+    whiteboard: "Whiteboard",
+    screen: "Screen",
+    visual: "Visual"
+  }
+};
+const LOCAL_VISION_MESSAGES = {
+  "zh-CN": {
+    rawTitle: "{visualType}原文：{text}",
+    visualTitle: "{visualType}画面",
+    rawBullet: "已在浏览器本地提取{visualType}原文，等待 DeepSeek 做文本分析。",
+    modelReady: "浏览器本地视觉模型已准备。",
+    errorNoFrame: "缺少可分析的视频画面。",
+    errorFrameUnsupported: "当前浏览器无法分析视频画面。",
+    errorDebugImageRead: "无法读取调试图像。",
+    reasonBlackboard: "深色背景更像板书",
+    reasonWhiteboard: "浅色背景更像白板",
+    reasonPpt: "浅色规则画面更像 PPT",
+    reasonLightBackground: "浅色背景占比较高",
+    reasonDarkInk: "存在深色文字或线条",
+    reasonEdgeDensity: "画面边缘密度像课件内容",
+    reasonTextBands: "多行区域有文字痕迹",
+    reasonNotStable: "不像稳定课程画面"
+  },
+  en: {
+    rawTitle: "{visualType} text: {text}",
+    visualTitle: "{visualType} frame",
+    rawBullet: "Local browser OCR extracted {visualType} text and is waiting for DeepSeek text analysis.",
+    modelReady: "Browser local vision model is ready.",
+    errorNoFrame: "Missing analyzable video frame.",
+    errorFrameUnsupported: "This browser cannot analyze the video frame.",
+    errorDebugImageRead: "Could not read debug image.",
+    reasonBlackboard: "Dark background looks like a blackboard",
+    reasonWhiteboard: "Light background looks like a whiteboard",
+    reasonPpt: "Light structured frame looks like a slide",
+    reasonLightBackground: "Light background ratio is high",
+    reasonDarkInk: "Dark text or line strokes detected",
+    reasonEdgeDensity: "Edge density resembles course material",
+    reasonTextBands: "Multiple text-like bands detected",
+    reasonNotStable: "Does not look like a stable lecture visual"
+  }
 };
 
 let transformersPromise = null;
@@ -23,11 +71,12 @@ let pipelinePromise = null;
 let modelProgressCallback = null;
 
 export function detectPptKeyFrame(frame, options = {}) {
-  const canvas = getFrameCanvas(frame);
+  const language = normalizeLanguage(options.language);
+  const canvas = getFrameCanvas(frame, language);
   const seconds = normalizeSeconds(frame?.seconds);
   const candidates = buildKeyFrameRegionCandidates(canvas)
     .map((region) => {
-      const stats = computeFrameStats(canvas, region);
+      const stats = computeFrameStats(canvas, region, language);
       const classification = classifyTeachingVisualFrame(stats, region);
       return {
         region,
@@ -41,7 +90,7 @@ export function detectPptKeyFrame(frame, options = {}) {
   const stats = best.stats;
   const score = best.score;
   const visualType = normalizeVisualType(best.classification.visualType);
-  const visualTypeLabel = getVisualTypeLabel(visualType);
+  const visualTypeLabel = getVisualTypeLabel(visualType, language);
   const threshold = Number.isFinite(Number(options.threshold))
     ? Number(options.threshold)
     : DEFAULT_KEYFRAME_THRESHOLD;
@@ -54,12 +103,12 @@ export function detectPptKeyFrame(frame, options = {}) {
     threshold: roundNumber(threshold, 3),
     visualType,
     visualTypeLabel,
-    reasons: buildKeyFrameReasons(stats, best.classification, threshold),
+    reasons: buildKeyFrameReasons(stats, best.classification, threshold, language),
     stats: roundStats(stats),
     region: serializeRegion(best.region, canvas),
     typeScores: best.classification.typeScores.map((entry) => ({
       visualType: entry.visualType,
-      label: getVisualTypeLabel(entry.visualType),
+      label: getVisualTypeLabel(entry.visualType, language),
       score: roundNumber(entry.score, 3)
     })),
     candidateScores: candidates.slice(0, 3).map((candidate) => ({
@@ -73,13 +122,15 @@ export function detectPptKeyFrame(frame, options = {}) {
 }
 
 export async function extractRawPptInfo(payload, options = {}) {
+  const language = normalizeLanguage(options.language);
   const frame = payload?.frame || {};
-  const canvas = getFrameCanvas(frame);
+  const canvas = getFrameCanvas(frame, language);
   const keyFrame =
     options.keyFrame ||
     detectPptKeyFrame(frame, {
       threshold: options.keyFrameThreshold,
-      force: options.force
+      force: options.force,
+      language
     });
 
   if (!keyFrame.shouldAnalyze && !options.force) {
@@ -89,7 +140,8 @@ export async function extractRawPptInfo(payload, options = {}) {
       keyFrame,
       shouldKeep: false,
       model: options.model || DEFAULT_LOCAL_VISION_MODEL,
-      task: options.task || DEFAULT_LOCAL_VISION_TASK
+      task: options.task || DEFAULT_LOCAL_VISION_TASK,
+      language
     });
   }
 
@@ -106,7 +158,8 @@ export async function extractRawPptInfo(payload, options = {}) {
     keyFrame,
     shouldKeep: shouldKeepRawExtraction(rawText),
     model: options.model || DEFAULT_LOCAL_VISION_MODEL,
-    task: options.task || DEFAULT_LOCAL_VISION_TASK
+    task: options.task || DEFAULT_LOCAL_VISION_TASK,
+    language
   });
 }
 
@@ -116,14 +169,23 @@ export async function analyzeLocalVisualFrame(payload, options = {}) {
     force: true
   });
   const visualType = normalizeVisualType(extraction.visualType);
-  const visualTypeLabel = getVisualTypeLabel(visualType);
+  const language = normalizeLanguage(options.language);
+  const visualTypeLabel = getVisualTypeLabel(visualType, language);
+  const rawTitle = localVisionText("rawTitle", language, {
+    visualType: visualTypeLabel,
+    text: extraction.visibleText[0]?.slice(0, 28) || ""
+  });
   return {
     timestamp: extraction.timestamp,
     seconds: extraction.seconds,
-    title: extraction.visibleText[0] ? `${visualTypeLabel}原文：${extraction.visibleText[0].slice(0, 28)}` : `${visualTypeLabel}画面`,
+    title: extraction.visibleText[0]
+      ? rawTitle
+      : localVisionText("visualTitle", language, { visualType: visualTypeLabel }),
     visualType,
     shouldKeep: extraction.shouldKeep,
-    bullets: extraction.visibleText.length ? [`已在浏览器本地提取${visualTypeLabel}原文，等待 DeepSeek 做文本分析。`] : [],
+    bullets: extraction.visibleText.length
+      ? [localVisionText("rawBullet", language, { visualType: visualTypeLabel })]
+      : [],
     visibleText: extraction.visibleText,
     rawVisibleText: extraction.rawVisibleText,
     relationToTranscript: "",
@@ -141,7 +203,7 @@ export async function preloadLocalVisionModel(options = {}) {
   return {
     status: "ok",
     model: options.model || DEFAULT_LOCAL_VISION_MODEL,
-    message: "浏览器本地视觉模型已准备。"
+    message: localVisionText("modelReady", normalizeLanguage(options.language))
   };
 }
 
@@ -150,8 +212,9 @@ export function getDefaultLocalVisionModel() {
 }
 
 export async function debugBuildOcrCandidateImages(frame, options = {}) {
-  const canvas = getFrameCanvas(frame);
-  const keyFrame = options.keyFrame || detectPptKeyFrame(frame, { force: true });
+  const language = normalizeLanguage(options.language);
+  const canvas = getFrameCanvas(frame, language);
+  const keyFrame = options.keyFrame || detectPptKeyFrame(frame, { force: true, language });
   const sourceCanvas = getCanvasForKeyFrameRegion(canvas, keyFrame);
   const candidates = buildOcrCandidateCanvases(sourceCanvas);
   const sourceDataUrl = await canvasToDataUrl(candidates[0]?.sourceCanvas || sourceCanvas, options);
@@ -219,7 +282,7 @@ async function loadTransformers() {
   return transformersPromise;
 }
 
-function buildRawExtractionResult({ frame, rawText, keyFrame, shouldKeep, model, task }) {
+function buildRawExtractionResult({ frame, rawText, keyFrame, shouldKeep, model, task, language = "zh-CN" }) {
   const seconds = normalizeSeconds(frame?.seconds);
   const visibleText = splitVisibleText(rawText);
   return {
@@ -229,7 +292,7 @@ function buildRawExtractionResult({ frame, rawText, keyFrame, shouldKeep, model,
     seconds,
     shouldKeep: Boolean(shouldKeep && visibleText.length),
     visualType: normalizeVisualType(keyFrame?.visualType),
-    visualTypeLabel: getVisualTypeLabel(keyFrame?.visualType),
+    visualTypeLabel: getVisualTypeLabel(keyFrame?.visualType, language),
     rawVisibleText: String(rawText || "").trim(),
     visibleText,
     ocrConfidence: null,
@@ -501,12 +564,12 @@ function isNoisyOcrText(text, options = {}) {
   return letters / normalized.length < (options.lenient ? 0.35 : 0.5);
 }
 
-function getFrameCanvas(frame) {
+function getFrameCanvas(frame, language = "zh-CN") {
   const canvas = frame?.canvas;
   const isHtmlCanvas = typeof HTMLCanvasElement !== "undefined" && canvas instanceof HTMLCanvasElement;
   const isOffscreenCanvas = typeof OffscreenCanvas !== "undefined" && canvas instanceof OffscreenCanvas;
   if (!isHtmlCanvas && !isOffscreenCanvas) {
-    throw new Error("缺少可分析的视频画面。");
+    throw new Error(localVisionText("errorNoFrame", language));
   }
   return canvas;
 }
@@ -569,13 +632,13 @@ function serializeRegion(region, canvas) {
   };
 }
 
-function computeFrameStats(canvas, region = null) {
+function computeFrameStats(canvas, region = null, language = "zh-CN") {
   const width = KEYFRAME_SAMPLE_WIDTH;
   const height = KEYFRAME_SAMPLE_HEIGHT;
   const sampleCanvas = createCanvas(width, height);
   const context = sampleCanvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
-    throw new Error("当前浏览器无法分析视频画面。");
+    throw new Error(localVisionText("errorFrameUnsupported", language));
   }
 
   const source = region || {
@@ -747,33 +810,45 @@ function bellScore(value, low, high) {
   return clamp(1 - (value - high) / high);
 }
 
-function buildKeyFrameReasons(stats, classification, threshold) {
+function buildKeyFrameReasons(stats, classification, threshold, language = "zh-CN") {
   const reasons = [];
   const visualType = normalizeVisualType(classification?.visualType);
   const score = Number(classification?.score || 0);
   if (visualType === "blackboard") {
-    reasons.push("深色背景更像板书");
+    reasons.push(localVisionText("reasonBlackboard", language));
   } else if (visualType === "whiteboard") {
-    reasons.push("浅色背景更像白板");
+    reasons.push(localVisionText("reasonWhiteboard", language));
   } else if (visualType === "ppt") {
-    reasons.push("浅色规则画面更像 PPT");
+    reasons.push(localVisionText("reasonPpt", language));
   }
   if (stats.brightRatio >= 0.35) {
-    reasons.push("浅色背景占比较高");
+    reasons.push(localVisionText("reasonLightBackground", language));
   }
   if (stats.darkRatio >= 0.015) {
-    reasons.push("存在深色文字或线条");
+    reasons.push(localVisionText("reasonDarkInk", language));
   }
   if (stats.edgeDensity >= 0.025) {
-    reasons.push("画面边缘密度像课件内容");
+    reasons.push(localVisionText("reasonEdgeDensity", language));
   }
   if (stats.activeRowRatio >= 0.08) {
-    reasons.push("多行区域有文字痕迹");
+    reasons.push(localVisionText("reasonTextBands", language));
   }
   if (score < threshold) {
-    reasons.push("不像稳定课程画面");
+    reasons.push(localVisionText("reasonNotStable", language));
   }
   return reasons;
+}
+
+function normalizeLanguage(value) {
+  return String(value || "").toLowerCase().startsWith("en") ? "en" : "zh-CN";
+}
+
+function localVisionText(key, language = "zh-CN", values = {}) {
+  const locale = normalizeLanguage(language);
+  const template = LOCAL_VISION_MESSAGES[locale]?.[key] || LOCAL_VISION_MESSAGES["zh-CN"][key] || key;
+  return String(template).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) =>
+    Object.hasOwn(values, name) ? String(values[name]) : match
+  );
 }
 
 function normalizeVisualType(value) {
@@ -784,14 +859,15 @@ function normalizeVisualType(value) {
   if (normalized === "chalkboard") {
     return "blackboard";
   }
-  if (normalized in VISUAL_TYPE_LABELS) {
+  if (["ppt", "blackboard", "whiteboard", "screen", "visual"].includes(normalized)) {
     return normalized;
   }
   return "visual";
 }
 
-function getVisualTypeLabel(value) {
-  return VISUAL_TYPE_LABELS[normalizeVisualType(value)] || VISUAL_TYPE_LABELS.visual;
+function getVisualTypeLabel(value, language = "zh-CN") {
+  const labels = VISUAL_TYPE_LABELS[normalizeLanguage(language)] || VISUAL_TYPE_LABELS["zh-CN"];
+  return labels[normalizeVisualType(value)] || labels.visual;
 }
 
 function shouldKeepRawExtraction(rawText) {
@@ -837,7 +913,7 @@ async function canvasToDataUrl(canvas, options = {}) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("无法读取调试图像。"));
+      reader.onerror = () => reject(new Error(localVisionText("errorDebugImageRead")));
       reader.readAsDataURL(blob);
     });
   }

@@ -111,6 +111,22 @@ function testClassifiesSlide() {
   assert.ok(result.typeScores.some((entry) => entry.visualType === "ppt"));
 }
 
+function testEnglishVisualLabels() {
+  const result = detectPptKeyFrame(
+    {
+      canvas: createBlackboardCanvas(),
+      seconds: 49,
+      timestamp: "00:49"
+    },
+    { language: "en" }
+  );
+
+  assert.equal(result.visualType, "blackboard");
+  assert.equal(result.visualTypeLabel, "Blackboard");
+  assert.ok(result.reasons.some((reason) => /blackboard/i.test(reason)));
+}
+
 testClassifiesBlackboard();
 testClassifiesSlide();
+testEnglishVisualLabels();
 console.log("local vision classification tests passed");

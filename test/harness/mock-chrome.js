@@ -5,6 +5,7 @@ const syncStore = {
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
   visualScanIntervalSeconds: 45,
+  uiLanguage: "zh-CN",
   outputLanguage: "zh-CN",
   noteTone: "study-handout"
 };
@@ -107,6 +108,21 @@ window.chrome = {
           }
         };
       }
+      if (message?.type === "RUN_DEEPSEEK_QA") {
+        return {
+          ok: true,
+          result: {
+            answer: "这是 harness 里的模拟课程问答回答。",
+            sources: [
+              {
+                title: "字幕",
+                url: "",
+                note: "基于当前视频字幕。"
+              }
+            ]
+          }
+        };
+      }
       if (message?.type === "CAPTURE_VISIBLE_TAB") {
         return {
           ok: true,
@@ -130,6 +146,11 @@ window.chrome = {
     },
     openOptionsPage() {
       window.__harnessLog("openOptionsPageDirect");
+    }
+  },
+  i18n: {
+    getUILanguage() {
+      return "zh-CN";
     }
   },
   tabs: {

@@ -345,6 +345,80 @@
   color: var(--mit-study-muted);
 }
 
+.mit-study-qa-composer {
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(142, 202, 230, 0.1);
+  border: 1px solid rgba(142, 202, 230, 0.2);
+}
+
+.mit-study-qa-composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(5, 8, 22, 0.42);
+  color: var(--mit-study-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mit-study-qa-composer textarea::placeholder {
+  color: rgba(181, 192, 212, 0.72);
+}
+
+.mit-study-qa-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.mit-study-qa-actions span {
+  min-width: 0;
+  color: var(--mit-study-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mit-study-qa-question {
+  margin: 0 0 10px;
+  color: var(--mit-study-text) !important;
+  font-weight: 700;
+}
+
+.mit-study-qa-answer p {
+  margin: 0 0 8px;
+}
+
+.mit-study-qa-sources {
+  margin: 8px 0;
+  color: var(--mit-study-muted);
+  font-size: 12px;
+}
+
+.mit-study-qa-sources summary {
+  cursor: pointer;
+  color: var(--mit-study-accent-2);
+}
+
+.mit-study-qa-sources ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.mit-study-qa-sources a {
+  color: var(--mit-study-accent-2);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
 .mit-study-progress {
   margin-top: 10px;
 }

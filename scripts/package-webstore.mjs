@@ -13,6 +13,7 @@ const packageDir = path.join(distDir, "webstore", "mit-lecture-study-sidebar");
 
 await ensureExists(path.join(rootDir, "manifest.json"));
 await ensureExists(path.join(rootDir, "src"));
+await ensureExists(path.join(rootDir, "_locales"));
 await ensureExists(path.join(rootDir, "assets", "icons", "icon-128.png"));
 
 const manifest = JSON.parse(await readFile(path.join(rootDir, "manifest.json"), "utf8"));
@@ -23,6 +24,7 @@ await mkdir(packageDir, { recursive: true });
 
 await cp(path.join(rootDir, "manifest.json"), path.join(packageDir, "manifest.json"));
 await cp(path.join(rootDir, "src"), path.join(packageDir, "src"), { recursive: true });
+await cp(path.join(rootDir, "_locales"), path.join(packageDir, "_locales"), { recursive: true });
 await cp(path.join(rootDir, "assets"), path.join(packageDir, "assets"), { recursive: true });
 
 await rm(zipPath, { force: true });

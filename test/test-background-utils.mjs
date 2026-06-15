@@ -85,6 +85,23 @@ function testNormalizeVisualTextAnalysisResult() {
   assert.equal(result.localExtraction.keyFrame.score, 0.8);
 }
 
+function testEnglishVisualFallbackTitle() {
+  const result = normalizeVisualTextAnalysisResult(
+    {},
+    {
+      timestamp: "00:12",
+      seconds: 12,
+      rawVisibleText: "",
+      visibleText: [],
+      visualType: "blackboard"
+    },
+    "",
+    "en"
+  );
+
+  assert.equal(result.title, "Blackboard key frame");
+}
+
 function testEnglishOutlineDetection() {
   assert.equal(isEnglishDominantText("Introduction and Course Overview"), true);
   assert.equal(isEnglishDominantText("课程介绍与整体安排"), false);
@@ -165,6 +182,7 @@ function main() {
   testSafeParseModelJson();
   testNormalizeRemoteStudyPack();
   testNormalizeVisualTextAnalysisResult();
+  testEnglishVisualFallbackTitle();
   testEnglishOutlineDetection();
   testMergePartialStudyPacks();
   console.log("background-utils tests passed");

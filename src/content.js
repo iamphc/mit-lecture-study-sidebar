@@ -1,9 +1,16 @@
+(() => {
+if (globalThis.__MIT_STUDY_CONTENT_SCRIPT_LOADED__) {
+  globalThis.__MIT_STUDY_RESYNC_SIDEBAR__?.();
+  return;
+}
+globalThis.__MIT_STUDY_CONTENT_SCRIPT_LOADED__ = true;
+
 const SIDEBAR_HOST_ID = "mit-study-sidebar-host";
 const APP_ROOT_ID = "mit-study-sidebar-root";
 const LIBRARY_INDEX_KEY = "lectureLibrary:index";
 const LIBRARY_SEARCH_TEXT_LIMIT = 60000;
-const STUDY_PACK_CACHE_VERSION = "outline-zh-v1";
-const VISIBLE_TABS = new Set(["outline", "visual", "library"]);
+const STUDY_PACK_CACHE_VERSION = "outline-i18n-v1";
+const VISIBLE_TABS = new Set(["outline", "visual", "qa", "library"]);
 const LOCAL_VISION_MODULE_PATH = "src/local-vision.js";
 const DEFAULT_VISUAL_SAMPLE_INTERVAL_SECONDS = 45;
 const DEFAULT_SETTINGS = {
@@ -13,7 +20,8 @@ const DEFAULT_SETTINGS = {
   deepseekBaseUrl: "https://api.deepseek.com",
   deepseekModel: "deepseek-v4-flash",
   visualScanIntervalSeconds: DEFAULT_VISUAL_SAMPLE_INTERVAL_SECONDS,
-  outputLanguage: "zh-CN",
+  uiLanguage: "auto",
+  outputLanguage: "auto",
   noteTone: "study-handout"
 };
 
@@ -38,200 +46,70 @@ const INNERTUBE_ANDROID_CLIENT = {
   osVersion: "11"
 };
 
-const UI_TEXT = {
-  brand: "MIT 课程学习",
-  openLectureTitle: "打开一个课程视频",
-  readyState: "准备状态",
-  readyCopy: "默认不会自动分析普通 YouTube 视频。需要课程分析时点“生成大纲”，或在设置里打开自动分析。",
-  title: "课程大纲侧边栏",
-  loadingCaptions: "正在读取课程内容...",
-  generateStudyPack: "生成大纲",
-  generating: "正在生成...",
-  progressIdle: "等待开始",
-  progressPreparing: "准备生成大纲",
-  progressCaptionFetching: "正在读取课程内容",
-  progressCaptionInitialData: "正在检查页面里的课程文字记录",
-  progressCaptionTranscriptApi: "正在读取 YouTube 文字记录接口",
-  progressCaptionPlayer: "正在读取播放器课程内容",
-  progressCaptionTrack: (current, total) => `正在解析字幕轨道 ${current}/${total}`,
-  progressCaptionAndroidPlayer: "正在尝试备用播放器课程内容",
-  progressCaptionReady: "课程内容已准备",
-  progressDeepSeekPreparing: "正在准备 DeepSeek 分析",
-  progressDeepSeekChunk: (current, total) => `DeepSeek 正在分析第 ${current}/${total} 段`,
-  progressDeepSeekMerging: "正在整理分段大纲",
-  progressSaving: "正在保存到本地目录",
-  progressDone: "生成完成",
-  exportMd: "导出 MD",
-  copy: "复制",
-  settings: "设置",
-  video: "视频",
-  captions: "课程内容",
-  workflow: "工作流",
-  diagnostics: "诊断",
-  hide: "隐藏",
-  show: "显示",
-  openDiagnostics: "打开诊断信息，检查当前测试状态。",
-  toggleSidebar: "展开或收起侧边栏",
-  reopenOutline: "打开大纲",
-  studyViews: "学习视图",
-  recentLectures: "最近课程",
-  clear: "清空",
-  outline: "大纲",
-  visual: "画面",
-  visualAnalysis: "画面分析",
-  visualStatusIdle: "播放课程时会自动筛选 PPT、板书、白板等关键画面，本地提取文字，再交给 DeepSeek 做中文分析。",
-  visualStatusWaiting: "等待可分析的视频画面。",
-  visualStatusCapturing: "正在截取当前画面...",
-  visualStatusDetecting: "正在本地判断画面类型...",
-  visualStatusExtracting: "正在本地提取画面原文...",
-  visualStatusAnalyzing: "正在用 DeepSeek 分析画面文本...",
-  visualStatusReady: "画面分析已更新",
-  visualStatusSkipped: "当前画面不是新的课程关键画面，已跳过。",
-  visualStatusOcrEmpty: "已识别到课程关键画面，但本地 OCR 暂时没有提取到文字，稍后会重试。",
-  visualStatusModelFailed: "本地画面分析失败。",
-  visualStatusAdPlaying: "检测到广告，已暂停画面分析。",
-  visualStatusHiddenTab: "视频页在后台时无法可靠截取隐藏标签页画面，回到视频页后会立即补扫。",
-  visualDeepSeekFailed: "画面文本分析失败。",
-  visualScanTitle: "画面自动扫描",
-  visualScanDescription: "不是全量 API 解析；插件会按视频播放进度截取当前画面。首次约 6 秒后扫描，之后按设置里的间隔扫描；检测到广告会暂停并短重试，回到视频页会补扫。",
-  visualScanDisabledDescription: "自动分析关闭时不会截取画面；在设置里打开自动分析后，才会按你设置的间隔扫描课程画面。",
-  visualScanCurrent: "当前播放",
-  visualScanLast: "上次扫描",
-  visualScanNext: "下次扫描",
-  visualScanNever: "还没有扫描",
-  visualScanWaiting: "等待视频画面",
-  visualScanDisabled: "自动分析已关闭",
-  visualScanAdPlaying: "广告播放中",
-  visualScanSoon: "即将扫描",
-  visualScanInFlight: "正在扫描",
-  visualScanEvery: "定时扫描",
-  visualScanOff: "自动分析关闭",
-  visualFramePreview: "关键帧截图",
-  visualOcrRegionPreview: "OCR 识别区域",
-  visualFrameInfo: "关键帧信息",
-  visualSelectedRegion: "选中区域",
-  visualFrameScore: "分数",
-  visualCandidateScores: "候选区域",
-  visualVisibleText: "画面原文",
-  visualType: "画面类型",
-  visualTypeScores: "类型分数",
-  visualTypePpt: "PPT",
-  visualTypeBlackboard: "板书",
-  visualTypeWhiteboard: "白板",
-  visualTypeScreen: "屏幕",
-  visualTypeVisual: "画面",
-  visualRelation: "和讲解的关系",
-  visualTags: "标签",
-  lectureNotes: "",
-  concepts: "",
-  tags: "",
-  questions: "",
-  library: "资料库",
-  waitingForLecture: "等待课程视频...",
-  statusNotLoaded: "未加载",
-  statusAutoStarting: "已进入视频，正在自动生成中文大纲...",
-  statusAutoAnalyzeDisabled: "已进入视频，自动分析已关闭。需要时点“生成大纲”。",
-  statusStudyPackReady: "大纲已生成",
-  statusDeepSeekKeyMissing: "缺少 DeepSeek API Key，请到设置里填写后重新生成。",
-  statusMarkdownExported: "Markdown 已导出",
-  statusStudyPackCopied: "大纲已复制",
-  statusDiagnosticsCopied: "诊断信息已复制",
-  statusRestoredStudyPack: "已恢复缓存大纲",
-  statusRestoredTranscript: "已恢复课程内容，正在生成中文大纲",
-  statusRestoredTranscriptManual: "已恢复课程内容，自动分析已关闭。需要时点“生成大纲”。",
-  statusRestoredTranscriptOutdatedPack: "旧版英文大纲已失效，正在重新生成中文大纲",
-  statusRestoredTranscriptOutdatedManual: "旧版大纲已失效，自动分析已关闭。需要时点“生成大纲”。",
-  statusRecentHistoryCleared: "最近课程记录已清空",
-  statusLibraryItemLoaded: "已从资料库加载这节课",
-  statusLibraryItemMissing: "资料库里的完整记录丢失了，请重新生成一次大纲。",
-  statusLibraryItemOutdated: "资料库里的大纲版本过旧，请重新生成一次中文大纲。",
-  statusLocalSaved: "已保存到本地目录",
-  statusLocalSaveSkipped: "未保存到本地目录，请到设置里选择本地保存目录",
-  noStudyPackExport: "还没有可导出的大纲。",
-  noStudyPackCopy: "还没有可复制的大纲。",
-  captionLoadFailed: "课程内容读取失败",
-  studyPackFailed: "大纲生成失败",
-  deepSeekUnavailable: "DeepSeek 生成失败",
-  summaryDefaultAuto: "进入视频后会自动生成中文大纲。",
-  summaryDefaultManual: "自动分析默认关闭；需要课程内容时点“生成大纲”。",
-  rawPreview: "原始预览",
-  recentDebugLog: "最近调试日志",
-  recentDebugLogCopy: "最近调试日志：",
-  rawPreviewCopy: "原始预览",
-  noRecentLectures: "还没有保存的课程记录。",
-  librarySearchPlaceholder: "搜索已保存课程或大纲...",
-  libraryEmpty: "资料库还没有内容。生成大纲后会自动缓存到这里，并保存到你选择的本地目录。",
-  libraryNoResults: "没有匹配的资料库记录。",
-  libraryOpenVideo: "打开视频",
-  libraryLoad: "查看",
-  libraryQuestions: () => "",
-  emptyOutline: "正在等待自动生成的大纲。",
-  emptyOutlineGenerating: "正在生成大纲，完成一段会先显示在这里。",
-  emptyVisual: "播放课程时会自动收集 PPT、板书、白板等关键画面的中文分析。",
-  emptyVisualManual: "自动分析关闭时不会收集课程画面；在设置里打开自动分析后才会开始。",
-  partialOutlineReady: (count, current, total) => `已生成 ${count} 个大纲小节，正在继续处理第 ${current}/${total} 段`,
-  jump: "跳转",
-  saved: "已保存",
-  justNow: "刚刚",
-  minAgo: "分钟前",
-  hoursAgo: "小时前",
-  daysAgo: "天前",
-  captionLines: (count) => `课程内容已准备`,
-  diagVideoId: "视频 ID",
-  diagCaptionsLoaded: "课程内容行数",
-  diagCaptionTrack: "内容来源",
-  diagCache: "缓存",
-  diagDeepSeekModel: "DeepSeek 模型",
-  diagDeepSeekKey: "DeepSeek Key",
-  diagStatus: "状态",
-  diagCaptionUrl: "内容 URL",
-  diagHttp: "HTTP",
-  diagParseMode: "解析模式",
-  diagEventCount: "事件数量",
-  diagTrackKind: "轨道类型",
-  diagTrackName: "轨道名称",
-  valueUnknown: "未知",
-  valueNone: "无",
-  valuePresent: "存在",
-  valueTranscriptOnly: "仅课程内容",
-  valueEmpty: "空",
-  valueConfigured: "已配置",
-  valueMissing: "缺失",
-  valueUnset: "未设置",
-  valueYes: "是",
-  valueNo: "否",
-  markdownFallbackTitle: "MIT 课程大纲",
-  markdownOutline: "大纲",
-  markdownVisual: "课程画面分析",
-  markdownTags: "",
-  markdownLectureNotes: "",
-  markdownConcepts: "",
-  markdownQuestions: ""
+const FALLBACK_I18N = {
+  createTranslator() {
+    return (key, values = {}) =>
+      String(key).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) =>
+        Object.hasOwn(values, name) ? String(values[name]) : match
+      );
+  },
+  normalizeLanguage(value) {
+    return String(value || "").toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+  },
+  resolveOutputLanguage(settings = {}) {
+    const value = String(settings.outputLanguage || "auto");
+    return value === "auto"
+      ? FALLBACK_I18N.resolveUiLanguage(settings)
+      : FALLBACK_I18N.normalizeLanguage(value);
+  },
+  resolveUiLanguage(settings = {}) {
+    const value = String(settings.uiLanguage || "auto");
+    if (value !== "auto") {
+      return FALLBACK_I18N.normalizeLanguage(value);
+    }
+    return FALLBACK_I18N.normalizeLanguage(
+      globalThis.chrome?.i18n?.getUILanguage?.() || navigator.language || "en"
+    );
+  }
 };
+
+if (!globalThis.MitStudyI18n) {
+  console.warn("[MIT Study] i18n bundle missing; using fallback labels.");
+}
+
+const {
+  createTranslator,
+  normalizeLanguage,
+  resolveOutputLanguage,
+  resolveUiLanguage
+} = globalThis.MitStudyI18n || FALLBACK_I18N;
+
+let activeUiLanguage = resolveUiLanguage(DEFAULT_SETTINGS);
+let activeOutputLanguage = resolveOutputLanguage(DEFAULT_SETTINGS);
+let t = createTranslator(activeUiLanguage);
 
 function sidebarWidthCssValue() {
   return `min(${Number(state.settings.sidebarWidth || DEFAULT_SETTINGS.sidebarWidth)}px, 100vw)`;
 }
 
 function uiText(key) {
-  const value = UI_TEXT[key] ?? key;
-  return typeof value === "function" ? value : String(value);
+  return t(key);
 }
 
 function uiCaptionLines(count) {
-  return UI_TEXT.captionLines(count);
+  return t("captionLines", { count });
 }
 
 function uiProgressCaptionTrack(current, total) {
-  return UI_TEXT.progressCaptionTrack(current, total);
+  return t("progressCaptionTrack", { current, total });
 }
 
 function uiPartialOutlineReady(count, current, total) {
-  return UI_TEXT.partialOutlineReady(count, current, total);
+  return t("partialOutlineReady", { count, current, total });
 }
 
 function uiLibraryQuestions(count) {
-  return UI_TEXT.libraryQuestions(count);
+  return "";
 }
 
 function uiError(prefixKey, error) {
@@ -324,6 +202,10 @@ const state = {
   visualAnalysis: [],
   visualAnalysisStatus: uiText("visualStatusIdle"),
   visualAnalysisError: "",
+  qaMessages: [],
+  qaQuestion: "",
+  qaInFlight: false,
+  qaError: "",
   videoId: "",
   videoTitle: "",
   activeTab: "outline",
@@ -344,6 +226,7 @@ const state = {
   visualNeedsForegroundRescan: false,
   visualEventBoundVideo: null,
   visualEventAbortController: null,
+  boundSidebarHost: null,
   recentLectures: [],
   libraryIndex: [],
   librarySearchQuery: "",
@@ -387,10 +270,8 @@ async function loadSettings() {
   const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
   const localStored = await chrome.storage.local.get(["localSaveDirectoryName"]);
   state.settings = normalizeSettings(stored);
+  applyRuntimeLanguage();
   state.localSaveDirectoryName = String(localStored.localSaveDirectoryName || "");
-  if (stored.outputLanguage !== "zh-CN") {
-    await chrome.storage.sync.set({ outputLanguage: "zh-CN" });
-  }
   await loadRecentLectures();
   await loadLibraryIndex();
 }
@@ -401,15 +282,16 @@ function normalizeSettings(stored = {}) {
     ...stored,
     autoAnalyze: Boolean(stored.autoAnalyze),
     visualScanIntervalSeconds: normalizeVisualScanInterval(stored.visualScanIntervalSeconds),
-    outputLanguage: "zh-CN"
+    uiLanguage: normalizeLanguageSetting(stored.uiLanguage, DEFAULT_SETTINGS.uiLanguage),
+    outputLanguage: normalizeLanguageSetting(stored.outputLanguage, DEFAULT_SETTINGS.outputLanguage)
   };
 
   return settings;
 }
 
 function normalizeSettingValue(key, value) {
-  if (key === "outputLanguage") {
-    return "zh-CN";
+  if (key === "uiLanguage" || key === "outputLanguage") {
+    return normalizeLanguageSetting(value, DEFAULT_SETTINGS[key]);
   }
   if (key === "autoAnalyze") {
     return Boolean(value);
@@ -420,14 +302,53 @@ function normalizeSettingValue(key, value) {
   return value;
 }
 
+function normalizeLanguageSetting(value, fallback = "auto") {
+  const text = String(value || fallback);
+  return text === "auto" ? "auto" : normalizeLanguage(text);
+}
+
+function applyRuntimeLanguage() {
+  activeUiLanguage = resolveUiLanguage(state.settings);
+  activeOutputLanguage = resolveOutputLanguage(state.settings);
+  t = createTranslator(activeUiLanguage);
+  document.documentElement.lang = activeUiLanguage === "zh-CN" ? "zh-CN" : "en";
+  if (!state.videoId) {
+    state.statusText = uiText("statusNotLoaded");
+  }
+  if (!state.visualAnalysis.length && !state.visualAnalysisInFlight) {
+    state.visualAnalysisStatus = uiText("visualStatusIdle");
+  }
+}
+
+function getResolvedOutputLanguage() {
+  activeOutputLanguage = resolveOutputLanguage({
+    ...state.settings,
+    uiLanguage: activeUiLanguage
+  });
+  return activeOutputLanguage;
+}
+
 function createSidebar() {
-  if (document.getElementById(SIDEBAR_HOST_ID)) {
+  const existingHost = document.getElementById(SIDEBAR_HOST_ID);
+  if (existingHost instanceof HTMLElement) {
+    let root = existingHost.querySelector(`#${APP_ROOT_ID}`);
+    if (!(root instanceof HTMLElement)) {
+      root = document.createElement("div");
+      root.id = APP_ROOT_ID;
+      existingHost.appendChild(root);
+    }
+    state.lastNonFullscreenParent = document.documentElement;
+    if (state.boundSidebarHost !== existingHost) {
+      bindSidebarEvents(root, existingHost);
+      state.boundSidebarHost = existingHost;
+    }
+    render();
     return;
   }
 
   const host = document.createElement("aside");
   host.id = SIDEBAR_HOST_ID;
-  host.setAttribute("aria-label", "MIT 课程学习侧边栏");
+  host.setAttribute("aria-label", uiText("appName"));
   host.style.width = sidebarWidthCssValue();
 
   const root = document.createElement("div");
@@ -437,6 +358,7 @@ function createSidebar() {
   state.lastNonFullscreenParent = document.documentElement;
   document.documentElement.appendChild(host);
   bindSidebarEvents(root, host);
+  state.boundSidebarHost = host;
   render();
 }
 
@@ -521,6 +443,16 @@ function bindSidebarEvents(root, host) {
       return;
     }
 
+    if (target.dataset.action === "ask-question") {
+      await askLectureQuestion();
+      return;
+    }
+
+    if (target.dataset.action === "copy-answer" && target.dataset.answerIndex) {
+      await copyQaAnswer(Number(target.dataset.answerIndex));
+      return;
+    }
+
     if (target.dataset.action === "clear-history") {
       await clearRecentLectures();
       return;
@@ -547,7 +479,12 @@ function bindSidebarEvents(root, host) {
 
   root.addEventListener("input", (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
+    if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    if (target.dataset.action === "qa-question") {
+      state.qaQuestion = target.value;
+      updateQaAskButtonState();
       return;
     }
     if (target.dataset.action !== "search-library") {
@@ -621,6 +558,7 @@ function handleStorageChanges(changes, areaName) {
   let shouldRender = false;
   let autoAnalyzeChanged = false;
   let visualIntervalChanged = false;
+  let languageChanged = false;
   for (const [key, change] of Object.entries(changes)) {
     if (!(key in DEFAULT_SETTINGS)) {
       continue;
@@ -632,9 +570,15 @@ function handleStorageChanges(changes, areaName) {
     if (key === "visualScanIntervalSeconds") {
       visualIntervalChanged = true;
     }
+    if (key === "uiLanguage" || key === "outputLanguage") {
+      languageChanged = true;
+    }
     shouldRender = true;
   }
 
+  if (languageChanged) {
+    applyRuntimeLanguage();
+  }
   if (autoAnalyzeChanged) {
     handleAutoAnalyzeChange();
   } else if (visualIntervalChanged && isAutoAnalyzeEnabled() && state.videoId) {
@@ -876,6 +820,10 @@ async function syncVideoContext() {
   state.visualAnalysis = [];
   state.visualAnalysisStatus = uiText("visualStatusIdle");
   state.visualAnalysisError = "";
+  state.qaMessages = [];
+  state.qaQuestion = "";
+  state.qaInFlight = false;
+  state.qaError = "";
   state.activeTab = "outline";
   state.visualAnalysisInFlight = false;
   state.visualAdPlaying = false;
@@ -1105,7 +1053,7 @@ async function captureCurrentVideoFrame(video, seconds) {
 
   const response = await captureVisibleTabWithoutSidebar();
   if (!response?.ok || !response.result?.dataUrl) {
-    throw new Error(response?.error || "当前标签页截图失败。");
+    throw new Error(response?.error || uiText("errorCaptureTabFailed"));
   }
 
   const crop = getVideoCropRect(video);
@@ -1124,7 +1072,7 @@ async function captureCurrentVideoFrame(video, seconds) {
   canvas.height = targetHeight;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
-    throw new Error("当前浏览器无法处理视频画面。");
+    throw new Error(uiText("errorVideoFrameProcessing"));
   }
   context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
 
@@ -1199,7 +1147,7 @@ function loadImage(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("截图图片加载失败。"));
+    image.onerror = () => reject(new Error(uiText("errorDebugImageRead")));
     image.src = src;
   });
 }
@@ -1238,7 +1186,10 @@ async function analyzeVisualFrame(frame) {
 
 async function detectVisualKeyFrame(frame, options = {}) {
   const { detectPptKeyFrame } = await loadLocalVisionModule();
-  return detectPptKeyFrame(frame, options);
+  return detectPptKeyFrame(frame, {
+    ...options,
+    language: activeUiLanguage
+  });
 }
 
 async function extractVisualFrameText(frame, keyFrame, options = {}) {
@@ -1251,6 +1202,7 @@ async function extractVisualFrameText(frame, keyFrame, options = {}) {
   }, {
     ...options,
     keyFrame,
+    language: activeUiLanguage,
     onProgress: handleLocalVisionProgress
   });
 }
@@ -1261,6 +1213,11 @@ async function analyzeVisualText(rawExtraction) {
     payload: {
       videoId: state.videoId,
       videoTitle: state.videoTitle,
+      settings: {
+        ...state.settings,
+        uiLanguage: activeUiLanguage,
+        outputLanguage: getResolvedOutputLanguage()
+      },
       extraction: serializeVisualExtraction(rawExtraction),
       transcriptContext: getTranscriptContext(rawExtraction.seconds)
     }
@@ -1307,6 +1264,7 @@ async function buildVisualOcrDebug(frame, keyFrame) {
     const { debugBuildOcrCandidateImages } = await loadLocalVisionModule();
     return debugBuildOcrCandidateImages(frame, {
       keyFrame,
+      language: activeUiLanguage,
       maxWidth: VISUAL_PREVIEW_MAX_WIDTH,
       quality: VISUAL_PREVIEW_JPEG_QUALITY,
       includeCandidates: false
@@ -1344,7 +1302,7 @@ async function canvasToPreviewDataUrl(canvas) {
 async function loadLocalVisionModule() {
   if (!localVisionModulePromise) {
     if (typeof chrome?.runtime?.getURL !== "function") {
-      throw new Error("当前环境无法加载插件内本地视觉模型。");
+      throw new Error(uiText("errorLocalVisionLoad"));
     }
     localVisionModulePromise = import(chrome.runtime.getURL(LOCAL_VISION_MODULE_PATH));
   }
@@ -1358,13 +1316,13 @@ function handleLocalVisionProgress(progress) {
 
   if (progress.status === "progress_total") {
     const percent = Math.max(0, Math.min(100, Math.round(Number(progress.progress) || 0)));
-    state.visualAnalysisStatus = `首次使用正在下载本地视觉模型 ${percent}%`;
+    state.visualAnalysisStatus = t("localVisionDownloading", { percent });
     render();
     return;
   }
 
   if (progress.status === "download" || progress.status === "initiate") {
-    state.visualAnalysisStatus = "首次使用正在下载本地视觉模型...";
+    state.visualAnalysisStatus = uiText("localVisionDownloadingUnknown");
     render();
     return;
   }
@@ -1536,7 +1494,7 @@ async function fetchTranscript() {
   });
 
   if (!tracks.length) {
-    throw new Error("这个视频没有暴露可用的课程内容。");
+    throw new Error(uiText("errorNoUsableTranscript"));
   }
 
   const failures = [];
@@ -1581,7 +1539,7 @@ async function fetchTranscript() {
   recordCaptionDebug({
     parseMode: "failed"
   });
-  throw new Error(`没有获取到可解析的字幕内容。尝试记录：${failures.join(" | ")}`);
+  throw new Error(t("errorNoParsedCaptions", { failures: failures.join(" | ") }));
 }
 
 async function tryCaptionTracks({ tracks, source, failures, progressStart = 28, progressEnd = 34 }) {
@@ -1698,7 +1656,7 @@ async function getBestPlayerResponse() {
     return pageResponse;
   }
 
-  throw new Error("当前页面没有找到播放器元数据。");
+  throw new Error(uiText("errorNoPlayerMetadata"));
 }
 
 async function getPlayerResponse() {
@@ -1709,7 +1667,7 @@ async function getPlayerResponse() {
 
   const response = await fetch(window.location.href, { credentials: "include" });
   if (!response.ok) {
-    throw new Error("无法读取当前 YouTube 视频页面。");
+    throw new Error(uiText("errorReadYouTubePage"));
   }
 
   const html = await response.text();
@@ -1718,7 +1676,7 @@ async function getPlayerResponse() {
     return parsedFromHtml;
   }
 
-  throw new Error("当前页面没有找到播放器元数据。");
+  throw new Error(uiText("errorNoPlayerMetadata"));
 }
 
 function readPlayerResponseFromWindow() {
@@ -1758,7 +1716,7 @@ function readInitialDataFromWindow() {
 async function fetchPlayerResponseViaInnertube() {
   const videoId = extractVideoId();
   if (!videoId) {
-    throw new Error("缺少视频 ID。");
+    throw new Error(uiText("errorMissingVideoId"));
   }
 
   const config = await getInnertubeConfigFromPage().catch((error) => {
@@ -1794,12 +1752,12 @@ async function fetchPlayerResponseViaInnertube() {
   );
 
   if (!response.ok) {
-    throw new Error(response.error || `播放器 API 请求失败，状态码 ${response.status}。`);
+    throw new Error(response.error || t("errorPlayerApiStatus", { status: response.status }));
   }
 
   const payload = safeParseJsonText(response.body || "");
   if (!payload) {
-    throw new Error("播放器 API 没有返回有效 JSON。");
+    throw new Error(uiText("errorInvalidPlayerJson"));
   }
 
   return payload;
@@ -2196,7 +2154,7 @@ function findTranscriptParams(initialData) {
 async function fetchTranscriptViaInnertube(params) {
   const config = await getInnertubeConfigFromPage();
   if (!config.apiKey || !config.context) {
-    throw new Error("页面里缺少 Innertube 配置。");
+    throw new Error(uiText("errorMissingInnertubeConfig"));
   }
 
   const response = await fetchPageResource(
@@ -2214,12 +2172,12 @@ async function fetchTranscriptViaInnertube(params) {
   );
 
   if (!response.ok) {
-    throw new Error(response.error || `字幕 API 请求失败，状态码 ${response.status}。`);
+    throw new Error(response.error || t("errorCaptionApiStatus", { status: response.status }));
   }
 
   const payload = safeParseJsonText(response.body || "");
   if (!payload) {
-    throw new Error("字幕 API 没有返回有效 JSON。");
+    throw new Error(uiText("errorInvalidCaptionJson"));
   }
 
   return extractTranscriptEntriesFromNode(payload);
@@ -2483,7 +2441,6 @@ function parseTimestampToMs(timestamp) {
 
 async function generateStudyPack() {
   const videoIdAtStart = state.videoId;
-  state.settings.outputLanguage = "zh-CN";
   setProgress(state.transcript.length ? 35 : 5, uiText("progressPreparing"), true);
   if (!state.transcript.length) {
     await loadTranscript();
@@ -2537,12 +2494,16 @@ async function runDeepSeekStudyPack() {
       transcript: state.transcript,
       videoTitle: state.videoTitle,
       videoId: state.videoId,
-      settings: state.settings
+      settings: {
+        ...state.settings,
+        uiLanguage: activeUiLanguage,
+        outputLanguage: getResolvedOutputLanguage()
+      }
     }
   });
 
   if (!response?.ok) {
-    throw new Error(response?.error || "DeepSeek 分析失败。");
+    throw new Error(response?.error || uiText("errorDeepSeekAnalysisFailed"));
   }
 
   return {
@@ -2919,18 +2880,18 @@ function buildMarkdown(pack) {
     lines.push(`## ${uiText("markdownVisual")}`, "");
     for (const item of state.visualAnalysis) {
       lines.push(`### ${item.timestamp} ${item.title || uiText("visualAnalysis")}`);
-      lines.push(`- ${uiText("visualType")}：${getVisualTypeLabel(item.visualType)}`);
+      lines.push(`- ${uiText("visualType")}: ${getVisualTypeLabel(item.visualType)}`);
       for (const bullet of item.bullets || []) {
         lines.push(`- ${bullet}`);
       }
       if (item.tags?.length) {
-        lines.push(`- ${uiText("visualTags")}：${item.tags.join("，")}`);
+        lines.push(`- ${uiText("visualTags")}: ${joinLocalizedList(item.tags)}`);
       }
       if (item.visibleText?.length) {
-        lines.push(`- ${getVisualTypeLabel(item.visualType)}原文：${item.visibleText.join("；")}`);
+        lines.push(`- ${t("visualRawText", { visualType: getVisualTypeLabel(item.visualType) })}: ${joinLocalizedList(item.visibleText)}`);
       }
       if (item.relationToTranscript) {
-        lines.push(`- ${uiText("visualRelation")}：${item.relationToTranscript}`);
+        lines.push(`- ${uiText("visualRelation")}: ${item.relationToTranscript}`);
       }
       lines.push("");
     }
@@ -3029,7 +2990,7 @@ function getPanelMarkup() {
       <section class="mit-study-shell">
         <header class="mit-study-header">
           <div>
-            <p class="mit-study-kicker">${escapeHtml(uiText("brand"))}</p>
+            <p class="mit-study-kicker">${escapeHtml(uiText("appShortName"))}</p>
             <h1>${escapeHtml(uiText("openLectureTitle"))}</h1>
           </div>
           <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${state.sidebarOpen ? "×" : "≡"}</button>
@@ -3054,8 +3015,8 @@ function getPanelMarkup() {
     <section class="mit-study-shell">
       <header class="mit-study-header">
         <div>
-          <p class="mit-study-kicker">${escapeHtml(uiText("brand"))}</p>
-          <h1>${escapeHtml(uiText("title"))}</h1>
+          <p class="mit-study-kicker">${escapeHtml(uiText("appShortName"))}</p>
+          <h1>${escapeHtml(uiText("sidebarTitle"))}</h1>
         </div>
         <button class="mit-study-close" type="button" aria-label="${escapeHtml(uiText("toggleSidebar"))}">${closeLabel}</button>
       </header>
@@ -3078,6 +3039,7 @@ function getPanelMarkup() {
       <nav class="mit-study-tabs" aria-label="${escapeHtml(uiText("studyViews"))}">
         ${renderTabButton("outline", uiText("outline"))}
         ${renderTabButton("visual", uiText("visual"))}
+        ${renderTabButton("qa", uiText("qa"))}
         ${renderTabButton("library", uiText("library"))}
       </nav>
 
@@ -3087,6 +3049,9 @@ function getPanelMarkup() {
         </section>
         <section class="mit-study-pane ${state.activeTab === "visual" ? "is-active" : ""}" data-pane="visual">
           ${renderVisualAnalysis()}
+        </section>
+        <section class="mit-study-pane ${state.activeTab === "qa" ? "is-active" : ""}" data-pane="qa">
+          ${renderQa()}
         </section>
         <section class="mit-study-pane ${state.activeTab === "library" ? "is-active" : ""}" data-pane="library">
           ${renderLibrary()}
@@ -3298,6 +3263,168 @@ function renderOutline() {
     .join("");
 }
 
+function renderQa() {
+  const canAsk = Boolean(state.videoId && !state.qaInFlight && state.qaQuestion.trim());
+  return `
+    <section class="mit-study-qa-composer">
+      <textarea
+        data-action="qa-question"
+        rows="4"
+        placeholder="${escapeHtml(uiText("qaPlaceholder"))}"
+      >${escapeHtml(state.qaQuestion)}</textarea>
+      <div class="mit-study-qa-actions">
+        <span>${escapeHtml(getQaStatusText())}</span>
+        <button class="mit-study-button" data-action="ask-question" type="button" ${canAsk ? "" : "disabled"}>${escapeHtml(state.qaInFlight ? uiText("qaAsking") : uiText("qaAsk"))}</button>
+      </div>
+      ${state.qaError ? `<p class="mit-study-warning">${escapeHtml(state.qaError)}</p>` : ""}
+    </section>
+    ${renderQaMessages()}
+  `;
+}
+
+function updateQaAskButtonState() {
+  const button = document.querySelector('[data-action="ask-question"]');
+  if (button instanceof HTMLButtonElement) {
+    button.disabled = !state.videoId || state.qaInFlight || !state.qaQuestion.trim();
+  }
+}
+
+function getQaStatusText() {
+  if (state.qaInFlight) {
+    return uiText("qaStatusThinking");
+  }
+  if (!state.transcript.length) {
+    return uiText("qaStatusNeedsContent");
+  }
+  return uiText("qaStatusReady");
+}
+
+function renderQaMessages() {
+  if (!state.qaMessages.length) {
+    return renderEmpty(uiText("qaEmpty"));
+  }
+
+  return state.qaMessages
+    .map(
+      (message, index) => `
+        <article class="mit-study-item mit-study-qa-item">
+          <p class="mit-study-qa-question">${escapeHtml(message.question)}</p>
+          <div class="mit-study-qa-answer">${renderQaAnswer(message)}</div>
+          ${renderQaSources(message.sources)}
+          <button class="mit-study-link" data-action="copy-answer" data-answer-index="${index}" type="button">${escapeHtml(uiText("copy"))}</button>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderQaAnswer(message) {
+  const paragraphs = Array.isArray(message.answer)
+    ? message.answer
+    : String(message.answer || "").split(/\n{2,}/);
+  return paragraphs
+    .map((paragraph) => String(paragraph || "").trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join("");
+}
+
+function renderQaSources(sources = []) {
+  const items = (Array.isArray(sources) ? sources : []).slice(0, 6);
+  if (!items.length) {
+    return "";
+  }
+  return `
+    <details class="mit-study-qa-sources">
+      <summary>${escapeHtml(uiText("qaSources"))}</summary>
+      <ul>
+        ${items
+          .map((source) => {
+            const title = source.title || source.label || source.url || uiText("valueUnknown");
+            const href = String(source.url || "").trim();
+            const label = escapeHtml(title);
+            return `<li>${href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label}${source.note ? ` <span>${escapeHtml(source.note)}</span>` : ""}</li>`;
+          })
+          .join("")}
+      </ul>
+    </details>
+  `;
+}
+
+async function askLectureQuestion() {
+  const question = state.qaQuestion.trim();
+  if (!question || state.qaInFlight) {
+    return;
+  }
+
+  state.activeTab = "qa";
+  state.qaInFlight = true;
+  state.qaError = "";
+  render();
+
+  try {
+    if (!state.transcript.length) {
+      await loadTranscript();
+    }
+    if (!state.transcript.length) {
+      throw new Error(uiText("errorNoUsableTranscript"));
+    }
+    if (!state.settings.deepseekApiKey) {
+      throw new Error(uiText("statusDeepSeekKeyMissing"));
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: "RUN_DEEPSEEK_QA",
+      payload: {
+        question,
+        videoId: state.videoId,
+        videoTitle: state.videoTitle,
+        videoUrl: window.location.href,
+        transcript: state.transcript,
+        studyPack: state.studyPack || null,
+        visualAnalysis: state.visualAnalysis || [],
+        settings: {
+          ...state.settings,
+          uiLanguage: activeUiLanguage,
+          outputLanguage: getResolvedOutputLanguage()
+        }
+      }
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || uiText("qaFailed"));
+    }
+    state.qaMessages = [
+      {
+        question,
+        answer: response.result?.answer || "",
+        sources: response.result?.sources || [],
+        createdAt: new Date().toISOString()
+      },
+      ...state.qaMessages
+    ].slice(0, 20);
+    state.qaQuestion = "";
+  } catch (error) {
+    state.qaError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.qaInFlight = false;
+    render();
+  }
+}
+
+async function copyQaAnswer(index) {
+  const message = state.qaMessages[index];
+  if (!message) {
+    return;
+  }
+  const sources = (message.sources || [])
+    .map((source) => `- ${source.title || source.label || source.url}: ${source.url || source.note || ""}`)
+    .join("\n");
+  await navigator.clipboard.writeText(
+    [`Q: ${message.question}`, "", String(message.answer || ""), sources ? `\n${uiText("qaSources")}:\n${sources}` : ""].join("\n")
+  );
+}
+
 function renderVisualAnalysis() {
   const scanPanel = renderVisualScanPanel();
   const statusClass = state.visualAnalysisError ? " mit-study-warning" : "";
@@ -3329,8 +3456,8 @@ function renderVisualAnalysis() {
             <h3>${escapeHtml(item.title || uiText("visualAnalysis"))}</h3>
             ${renderVisualFramePreview(item)}
             ${item.bullets?.length ? `<ul>${item.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
-            ${item.tags?.length ? `<p><strong>${escapeHtml(uiText("visualTags"))}：</strong>${escapeHtml(item.tags.join("，"))}</p>` : ""}
-            ${item.relationToTranscript ? `<p><strong>${escapeHtml(uiText("visualRelation"))}：</strong>${escapeHtml(item.relationToTranscript)}</p>` : ""}
+            ${item.tags?.length ? `<p><strong>${escapeHtml(uiText("visualTags"))}: </strong>${escapeHtml(joinLocalizedList(item.tags))}</p>` : ""}
+            ${item.relationToTranscript ? `<p><strong>${escapeHtml(uiText("visualRelation"))}: </strong>${escapeHtml(item.relationToTranscript)}</p>` : ""}
             ${renderVisualFrameInfo(item)}
             ${renderVisualRawText(item)}
           </article>
@@ -3347,7 +3474,7 @@ function renderVisualScanPanel() {
     <section class="mit-study-visual-scan-card">
       <div class="mit-study-visual-scan-topline">
         <strong>${escapeHtml(uiText("visualScanTitle"))}</strong>
-        <span>${escapeHtml(isEnabled ? `${uiText("visualScanEvery")} ${getVisualScanIntervalSeconds()} 秒` : uiText("visualScanOff"))}</span>
+        <span>${escapeHtml(isEnabled ? t("visualScanEverySeconds", { seconds: getVisualScanIntervalSeconds() }) : uiText("visualScanOff"))}</span>
       </div>
       <p>${escapeHtml(isEnabled ? uiText("visualScanDescription") : uiText("visualScanDisabledDescription"))}</p>
       <div class="mit-study-visual-scan-grid">
@@ -3401,7 +3528,7 @@ function formatVisualNextScan() {
   if (remainingMs <= 1000) {
     return uiText("visualScanSoon");
   }
-  return `约 ${Math.ceil(remainingMs / 1000)} 秒后`;
+  return t("visualScanInSeconds", { seconds: Math.ceil(remainingMs / 1000) });
 }
 
 function formatVideoSeconds(seconds) {
@@ -3410,6 +3537,11 @@ function formatVideoSeconds(seconds) {
     return "00:00";
   }
   return formatTime(value * 1000);
+}
+
+function joinLocalizedList(items) {
+  const values = (items || []).map((item) => String(item || "").trim()).filter(Boolean);
+  return values.join(activeUiLanguage === "zh-CN" ? "，" : ", ");
 }
 
 function renderVisualFramePreview(item) {
@@ -3457,7 +3589,7 @@ function renderVisualFrameInfo(item) {
     ? keyFrame.typeScores
         .map((entry) => {
           const entryScore = Number.isFinite(Number(entry?.score)) ? Number(entry.score).toFixed(3) : "";
-          return [entry?.label || getVisualTypeLabel(entry?.visualType), entryScore].filter(Boolean).join(" ");
+          return [getVisualTypeLabel(entry?.visualType), entryScore].filter(Boolean).join(" ");
         })
         .filter(Boolean)
     : [];
@@ -3478,11 +3610,11 @@ function renderVisualFrameInfo(item) {
   return `
     <details class="mit-study-visual-frame-info">
       <summary>${escapeHtml(uiText("visualFrameInfo"))}</summary>
-      ${visualTypeLabel ? `<p><strong>${escapeHtml(uiText("visualType"))}：</strong>${escapeHtml(visualTypeLabel)}</p>` : ""}
-      ${regionName ? `<p><strong>${escapeHtml(uiText("visualSelectedRegion"))}：</strong>${escapeHtml(regionName)}</p>` : ""}
-      ${score ? `<p><strong>${escapeHtml(uiText("visualFrameScore"))}：</strong>${escapeHtml(score)}</p>` : ""}
-      ${typeScores.length ? `<p><strong>${escapeHtml(uiText("visualTypeScores"))}：</strong>${escapeHtml(typeScores.join("，"))}</p>` : ""}
-      ${candidateScores.length ? `<p><strong>${escapeHtml(uiText("visualCandidateScores"))}：</strong>${escapeHtml(candidateScores.join("，"))}</p>` : ""}
+      ${visualTypeLabel ? `<p><strong>${escapeHtml(uiText("visualType"))}: </strong>${escapeHtml(visualTypeLabel)}</p>` : ""}
+      ${regionName ? `<p><strong>${escapeHtml(uiText("visualSelectedRegion"))}: </strong>${escapeHtml(regionName)}</p>` : ""}
+      ${score ? `<p><strong>${escapeHtml(uiText("visualFrameScore"))}: </strong>${escapeHtml(score)}</p>` : ""}
+      ${typeScores.length ? `<p><strong>${escapeHtml(uiText("visualTypeScores"))}: </strong>${escapeHtml(joinLocalizedList(typeScores))}</p>` : ""}
+      ${candidateScores.length ? `<p><strong>${escapeHtml(uiText("visualCandidateScores"))}: </strong>${escapeHtml(joinLocalizedList(candidateScores))}</p>` : ""}
     </details>
   `;
 }
@@ -3492,7 +3624,7 @@ function renderVisualRawText(item) {
   if (!rawText) {
     return "";
   }
-  const rawTextLabel = `${getVisualTypeLabel(item.visualType)}原文`;
+  const rawTextLabel = t("visualRawText", { visualType: getVisualTypeLabel(item.visualType) });
   return `
     <details class="mit-study-raw-visual">
       <summary>${escapeHtml(rawTextLabel)}</summary>
@@ -3558,3 +3690,15 @@ function sanitizeDataImageUrl(value) {
   const text = String(value || "").trim();
   return /^data:image\/(?:png|jpeg|jpg|webp);base64,[a-z0-9+/=]+$/i.test(text) ? text : "";
 }
+
+globalThis.__MIT_STUDY_RESYNC_SIDEBAR__ = () => {
+  try {
+    createSidebar();
+    void syncVideoContext();
+  } catch (error) {
+    console.warn("[MIT Study] sidebar resync failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
+})();

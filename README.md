@@ -1,10 +1,11 @@
 # MIT Lecture Study Sidebar
 
-Chrome extension for studying MIT OpenCourseWare videos on YouTube. It automatically turns lecture content into a compact Chinese outline in a right-side study sidebar.
+Chrome extension for studying MIT OpenCourseWare videos on YouTube. It turns lecture content into a compact study outline in a right-side study sidebar, with Chinese and English UI/output support.
 
 ## Core capabilities
 
 - Generates a structured lecture outline
+- Supports Chinese and English interface/output language settings
 - Separately analyzes visible PPT/board frames from locally extracted text
 - Works in a right-side overlay that remains visible even when the video enters fullscreen
 - Uses DeepSeek for outline generation
@@ -82,18 +83,19 @@ PPT frame processing runs in three stages:
 
 1. The browser locally filters video frames to find likely PPT/key teaching frames.
 2. The browser locally extracts raw OCR text from those frames without interpretation.
-3. DeepSeek receives only the extracted text and nearby transcript context to produce Chinese analysis.
+3. DeepSeek receives only the extracted text and nearby transcript context to produce analysis in the configured output language.
 
 Users do not need to install a local service or download a model manually. The extension bundles the Transformers.js runtime and downloads the default browser OCR model automatically on first use. Model files are cached by Chrome after the first download. Sampled images are not sent to DeepSeek or Hugging Face.
 
 ## Usage flow
 
 1. Open a YouTube MIT lecture.
-2. Open the extension options page, fill the DeepSeek API Key, and click `选择目录` under `本地保存目录`.
-3. If `自动分析课程视频` is enabled, the sidebar automatically generates a Chinese outline. If it is disabled, click `生成大纲` when you want to analyze the current video.
-4. Keep watching the lecture. The `画面` tab progressively collects separate PPT analysis when useful frames appear.
-5. Use `Jump` to go back to the relevant video timestamp.
-6. Reopen the same lecture later and restore from local cache, or use the local files in the selected save directory.
+2. Open the extension options page, fill the DeepSeek API Key, and choose a local save directory.
+3. Pick `Interface language` and `Output language`, or leave both as auto to follow the browser/interface language.
+4. If auto-analysis is enabled, the sidebar automatically generates an outline. If it is disabled, click `Generate Outline` / `生成大纲` when you want to analyze the current video.
+5. Keep watching the lecture. The `Visuals` / `画面` tab progressively collects separate PPT/board analysis when useful frames appear.
+6. Use `Jump` to go back to the relevant video timestamp.
+7. Reopen the same lecture later and restore from local cache, or use the local files in the selected save directory.
 
 ## Packaging
 
